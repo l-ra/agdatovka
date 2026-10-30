@@ -1,0 +1,20 @@
+{
+  "purpose": "synthetic only; certificate metadata, never private keys",
+  "profile": {
+    "name": "synthetic-mtls",
+    "version": "2026-10-30",
+    "anchorFingerprints": ["sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],
+    "allowedIssuers": ["Synthetic Test CA"],
+    "hostnames": ["isds.synthetic.test"],
+    "requiredKeyUsage": ["digitalSignature", "keyEncipherment"],
+    "revocation": "required"
+  },
+  "certificates": {
+    "valid": {"fingerprint": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "issuer": "Synthetic Test CA", "notBefore": "2026-01-01T00:00:00Z", "notAfter": "2027-01-01T00:00:00Z", "san": ["isds.synthetic.test"], "keyUsage": ["digitalSignature", "keyEncipherment"], "chainValid": true, "revocation": "good"},
+    "expired": {"fingerprint": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "issuer": "Synthetic Test CA", "notBefore": "2025-01-01T00:00:00Z", "notAfter": "2025-12-31T00:00:00Z", "san": ["isds.synthetic.test"], "keyUsage": ["digitalSignature", "keyEncipherment"], "chainValid": true, "revocation": "good"},
+    "wrong-host": {"fingerprint": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", "issuer": "Synthetic Test CA", "notBefore": "2026-01-01T00:00:00Z", "notAfter": "2027-01-01T00:00:00Z", "san": ["other.synthetic.test"], "keyUsage": ["digitalSignature", "keyEncipherment"], "chainValid": true, "revocation": "good"},
+    "wrong-usage": {"fingerprint": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", "issuer": "Synthetic Test CA", "notBefore": "2026-01-01T00:00:00Z", "notAfter": "2027-01-01T00:00:00Z", "san": ["isds.synthetic.test"], "keyUsage": ["keyCertSign"], "chainValid": true, "revocation": "good"},
+    "revoked": {"fingerprint": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", "issuer": "Synthetic Test CA", "notBefore": "2026-01-01T00:00:00Z", "notAfter": "2027-01-01T00:00:00Z", "san": ["isds.synthetic.test"], "keyUsage": ["digitalSignature", "keyEncipherment"], "chainValid": true, "revocation": "revoked"},
+    "unknown-ca": {"fingerprint": "sha256:9999999999999999999999999999999999999999999999999999999999999999", "issuer": "Unknown Synthetic CA", "notBefore": "2026-01-01T00:00:00Z", "notAfter": "2027-01-01T00:00:00Z", "san": ["isds.synthetic.test"], "keyUsage": ["digitalSignature", "keyEncipherment"], "chainValid": false, "revocation": "unknown"}
+  }
+}

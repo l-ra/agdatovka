@@ -21,6 +21,8 @@ from http import HTTPStatus
 from typing import Any, Iterable, Mapping
 from urllib.parse import parse_qs, urlencode, urlsplit
 
+from .security import TrustError, TrustProfile, modern_subject, secret_handle, validate_endpoint
+
 
 API_VERSION = "v1"
 MAX_PAGE_SIZE = 100
@@ -195,6 +197,25 @@ class Database:
               response_status INTEGER NOT NULL, response_json TEXT NOT NULL,
               created_at TEXT NOT NULL, PRIMARY KEY(tenant_id, actor, key)
             );
+            CREATE TABLE IF NOT EXISTS trust_profiles (
+              id TEXT PRIMARY KEY, name TEXT NOT NULL, version TEXT NOT NULL,
+              profile_json TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL,
+              UNIQUE(name, version)
+            );
+            CREATE TABLE IF NOT EXISTS endpoint_profiles (
+              id TEXT PRIMARY KEY, name TEXT UNIQUE NOT NULL, profile_json TEXT NOT NULL,
+              status TEXT NOT NULL, created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS key_handles (
+              id TEXT PRIMARY KEY, box_id TEXT NOT NULL REFERENCES boxes(id),
+              handle TEXT NOT NULL, version TEXT NOT NULL, state TEXT NOT NULL,
+              created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS trust_rotations (
+              id TEXT PRIMARY KEY, box_id TEXT NOT NULL REFERENCES boxes(id),
+              old_key_id TEXT, new_key_id TEXT NOT NULL, state TEXT NOT NULL,
+              created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+            );
             CREATE INDEX IF NOT EXISTS idx_messages_box_created ON messages(box_id, created_at DESC, id DESC);
             CREATE INDEX IF NOT EXISTS idx_audit_tenant_created ON audit_events(tenant_id, occurred_at DESC, id DESC);
             CREATE INDEX IF NOT EXISTS idx_operations_box_created ON operations(box_id, created_at DESC, id DESC);
@@ -366,6 +387,15 @@ class ManagementApp:
         if not auth.startswith("Bearer "):
             raise Problem(401, "authentication_required", "Authentication required", "Use a scoped bearer token.")
         token = auth[7:]
+        if token.startswith("oidc:"):
+            try:
+                subject, tenant, _permissions = modern_subject(token)
+            except TrustError as error:
+                raise Problem(401, error.code, "Authentication failed", error.detail)
+            box = self.db.one("SELECT id FROM boxes WHERE id=? AND status='active'", (tenant,))
+            if not box:
+                raise Problem(401, "invalid_token", "Authentication failed", "The caller tenant is not valid.")
+            return Actor(subject, tenant)
         if token in {"dev:platform", "dev:platform-admin"}:
             return Actor("platform-admin", None, platform=True)
         if token.startswith("dev:"):
@@ -398,6 +428,12 @@ class ManagementApp:
             return self._permissions(method, rest[1:], body, actor, request_id, correlation_id)
         if resource == "auth-methods":
             return self._auth_methods(method, rest[1:], body, actor, request_id, correlation_id)
+        if resource == "trust-profiles":
+            return self._trust_profiles(method, rest[1:], body, actor, request_id, correlation_id)
+        if resource == "endpoint-profiles":
+            return self._endpoint_profiles(method, rest[1:], body, actor, request_id, correlation_id)
+        if resource == "key-handles":
+            return self._key_handles(method, rest[1:], body, actor, request_id, correlation_id)
         if resource == "messages":
             return self._messages(method, rest[1:], body, actor, request_id, correlation_id, query, headers)
         if resource == "operations":
@@ -407,6 +443,50 @@ class ManagementApp:
         if resource == "audit" and rest[1:] == ["events"]:
             return self._audit_list(query, actor, request_id)
         raise Problem(404, "not_found", "Not found", "The requested API resource does not exist.")
+
+    def _trust_profiles(self, method: str, rest: list[str], body: dict[str, Any], actor: Actor, request_id: str, correlation_id: str) -> tuple[int, dict[str, Any]]:
+        if method != "POST" or rest:
+            raise Problem(405, "method_not_allowed", "Method not allowed", "Only POST is supported for trust profiles.")
+        self._require(actor, "auth:manage", body.get("boxId"))
+        try:
+            profile = TrustProfile.from_mapping(body)
+        except TrustError as error:
+            raise Problem(422, error.code, "Invalid trust profile", error.detail)
+        profile_id, at = new_id("trust"), now_iso()
+        self.db.connection.execute("INSERT INTO trust_profiles VALUES(?,?,?,?,?,?)", (profile_id, profile.name, profile.version, canonical_json(body), "active", at))
+        self._audit(actor, "trust_profile.changed", "allowed", "trust_profile", profile_id, request_id, correlation_id, None, actor.box_id)
+        self.db.connection.commit()
+        return 201, {"id": profile_id, "name": profile.name, "version": profile.version, "status": "active", "requestId": request_id}
+
+    def _endpoint_profiles(self, method: str, rest: list[str], body: dict[str, Any], actor: Actor, request_id: str, correlation_id: str) -> tuple[int, dict[str, Any]]:
+        if method != "POST" or rest:
+            raise Problem(405, "method_not_allowed", "Method not allowed", "Only POST is supported for endpoint profiles.")
+        self._require(actor, "auth:manage", body.get("boxId"))
+        try:
+            profile = validate_endpoint(body)
+        except TrustError as error:
+            raise Problem(422, error.code, "Invalid endpoint profile", error.detail)
+        profile_id, at = new_id("endpoint"), now_iso()
+        self.db.connection.execute("INSERT INTO endpoint_profiles VALUES(?,?,?,?,?)", (profile_id, body.get("name", profile_id), canonical_json(profile), "active", at))
+        self._audit(actor, "endpoint_profile.changed", "allowed", "endpoint_profile", profile_id, request_id, correlation_id, None, actor.box_id)
+        self.db.connection.commit()
+        return 201, {"id": profile_id, **profile, "status": "active", "requestId": request_id}
+
+    def _key_handles(self, method: str, rest: list[str], body: dict[str, Any], actor: Actor, request_id: str, correlation_id: str) -> tuple[int, dict[str, Any]]:
+        if method != "POST" or rest:
+            raise Problem(405, "method_not_allowed", "Method not allowed", "Only POST is supported for key handles.")
+        box_id = self._required(body, "boxId")
+        self._box_or_404(box_id, actor, request_id)
+        self._require(actor, "auth:manage", box_id)
+        try:
+            handle = secret_handle(body)
+        except TrustError as error:
+            raise Problem(422, error.code, "Invalid key handle", error.detail)
+        key_id, at = new_id("key"), now_iso()
+        self.db.connection.execute("INSERT INTO key_handles VALUES(?,?,?,?,?,?,?)", (key_id, box_id, handle["handle"], handle["version"], handle["state"], at, at))
+        self._audit(actor, "key_handle.changed", "allowed", "key_handle", key_id, request_id, correlation_id, None, box_id)
+        self.db.connection.commit()
+        return 201, {"id": key_id, "boxId": box_id, "version": handle["version"], "state": handle["state"], "requestId": request_id}
 
     def _boxes(self, method: str, rest: list[str], body: dict[str, Any], actor: Actor, request_id: str, correlation_id: str, query: Mapping[str, list[str]]) -> tuple[int, dict[str, Any]]:
         if not rest:
