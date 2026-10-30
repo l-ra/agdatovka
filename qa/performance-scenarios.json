@@ -1,0 +1,135 @@
+{
+  "manifestVersion": 2,
+  "manifestId": "agda13-performance-readiness-2026-10-30",
+  "status": "scenario-ready-not-measured",
+  "executionGate": "approved-isolated-environment-only",
+  "fixtureManifest": "qa/fixtures.json",
+  "fixtureProfile": "synthetic-ag-v1-2026-10-30",
+  "seed": 20261030,
+  "endpointPolicy": {
+    "allowedEndpoint": "https://synthetic.invalid/ag-v1",
+    "productionDnsAllowed": false,
+    "credentialsAllowed": false,
+    "realMessageContentAllowed": false
+  },
+  "target": {
+    "acceptedMessagesPerMinute": 1000,
+    "sustainedMinutes": 30,
+    "burstMultiplier": 3,
+    "messageMix": {"smallPercent": 90, "mediumPercent": 9, "largePercent": 1}
+  },
+  "resourceAssumptions": {
+    "generatorWorkers": 2,
+    "apiInstances": 2,
+    "workerInstances": 2,
+    "queuePartitions": 4,
+    "tenants": 10,
+    "maxWorkerMemoryMb": 512,
+    "maxGeneratorMemoryMb": 512,
+    "maxQueueDepth": 10000,
+    "ephemeralStorageGb": 20,
+    "networkEgress": "disabled-or-loopback-only"
+  },
+  "sampling": {
+    "latencyPercentiles": [50, 95, 99],
+    "queueAgeSampleSeconds": 5,
+    "resourceSampleSeconds": 5,
+    "structuredEventSamplePercent": 100,
+    "contentLogging": false,
+    "tenantCardinality": "fixed-10"
+  },
+  "abortThresholds": [
+    "any DNS resolution outside the synthetic endpoint",
+    "any credential or secret lookup",
+    "any real message content or attachment bytes",
+    "any cross-tenant result or duplicate external side effect",
+    "any unaccounted accepted, rejected, retried, or dead-lettered operation",
+    "queue depth above 10000 for 60 consecutive seconds",
+    "worker or generator memory above its declared budget for 60 seconds",
+    "telemetry redaction failure or missing operation correlation"
+  ],
+  "scenarios": [
+    {
+      "id": "PERF-01",
+      "name": "sustained-admission",
+      "profile": "90% small, 9% medium, 1% large; 1-5 synthetic attachments",
+      "durationMinutes": 30,
+      "metrics": ["accepted_rate", "admission_latency_ms", "queue_age_s", "worker_throughput", "error_rate", "lost_operations", "duplicate_operations"],
+      "acceptance": {"acceptedRateMinimumPerMinute": 1000, "lostOperations": 0, "duplicateOperations": 0, "p99AdmissionLatency": "pre_run_agreed", "errorRate": "pre_run_agreed"}
+    },
+    {
+      "id": "PERF-02",
+      "name": "burst-and-drain",
+      "profile": "3x target for 5 minutes, then target-off drain for 20 minutes",
+      "durationMinutes": 25,
+      "metrics": ["queue_depth", "oldest_queue_age_s", "202_count", "429_count", "drain_time", "memory_mb"],
+      "acceptance": {"backpressureVisible": true, "unboundedMemory": false, "queueDrain": "pre_run_agreed"}
+    },
+    {
+      "id": "PERF-03",
+      "name": "large-and-resumable-content",
+      "profile": "maximum, one-byte-over-maximum, and interrupted-resume fixtures",
+      "durationMinutes": 10,
+      "metrics": ["upload_memory_mb", "checksum_cpu_ms", "transfer_latency_ms", "resume_bytes", "reject_code", "content_digest"],
+      "acceptance": {"boundedMemory": true, "overLimitCode": "content_too_large", "resumeDuplicateContent": false}
+    },
+    {
+      "id": "PERF-04",
+      "name": "idempotency-replay",
+      "profile": "concurrent and post-timeout replay with same and different bodies",
+      "durationMinutes": 10,
+      "metrics": ["logical_operations", "external_attempts", "duplicate_side_effects", "conflict_responses"],
+      "acceptance": {"logicalOperations": 1, "sameBodyReturnsOriginal": true, "differentBodyStatus": 409}
+    },
+    {
+      "id": "PERF-05",
+      "name": "worker-failure-recovery",
+      "profile": "kill at pre-submit, post-submit, and post-receipt checkpoints",
+      "durationMinutes": 15,
+      "metrics": ["recovery_time_s", "lease_expiry_s", "event_order", "reconciliation_count", "retry_count"],
+      "acceptance": {"missingEvents": 0, "unboundedRetry": false, "terminalEvidenceExplainable": true}
+    },
+    {
+      "id": "PERF-06",
+      "name": "upstream-and-store-faults",
+      "profile": "429, 5xx, timeout, delayed object store, malformed response, poison item",
+      "durationMinutes": 15,
+      "metrics": ["queue_age_s", "retry_schedule", "dead_letter_count", "backoff_s", "alert_latency_s"],
+      "acceptance": {"retryBudget": "pre_run_agreed", "poisonIsolated": true, "alertIncludesOperation": true}
+    },
+    {
+      "id": "PERF-07",
+      "name": "horizontal-scale-and-partitions",
+      "profile": "workers 1 to N to 1 across 10 fixed tenants and 4 partitions",
+      "durationMinutes": 20,
+      "metrics": ["throughput_per_worker", "rebalance_time_s", "lock_contention", "ordering_violations", "cross_tenant_results"],
+      "acceptance": {"crossTenantResults": 0, "duplicateSideEffects": 0, "ordering": "per-tenant contract", "scaling": "pre_run_agreed"}
+    },
+    {
+      "id": "PERF-08",
+      "name": "observability-overhead",
+      "profile": "target load with redaction and structured telemetry enabled",
+      "durationMinutes": 30,
+      "metrics": ["cpu_percent", "telemetry_storage_bytes", "dropped_telemetry", "log_cardinality", "redaction_findings"],
+      "acceptance": {"requiredMetricsPresent": true, "contentOrSecretLeak": false, "overhead": "pre_run_agreed"}
+    },
+    {
+      "id": "PERF-09",
+      "name": "retention-and-evidence-workload",
+      "profile": "mixed ordinary, system, legal-hold records and stable JSONL export manifests",
+      "durationMinutes": 15,
+      "metrics": ["export_latency_ms", "manifest_digest", "retention_scan_rate", "legal_hold_violations", "evidence_bytes"],
+      "acceptance": {"manifestStable": true, "legalHoldViolations": 0, "unaccountedRecords": 0}
+    },
+    {
+      "id": "PERF-10",
+      "name": "full-recovery-and-cleanup",
+      "profile": "restart API, workers, queue, and disposable store; reconcile and clean all fixtures",
+      "durationMinutes": 20,
+      "metrics": ["recovery_time_s", "reconciled_operations", "orphan_count", "cleanup_result", "evidence_checksum"],
+      "acceptance": {"orphanCount": 0, "fixtureResidue": 0, "evidenceChecksummed": true}
+    }
+  ],
+  "requiredEvidence": ["commit", "manifest_sha256", "fixture_profile", "seed", "counts", "latency_histograms", "queue_metrics", "resource_metrics", "checksums", "cleanup_proof"],
+  "measurementStatement": "This manifest defines readiness scenarios and thresholds only. No production or performance load execution is claimed."
+}

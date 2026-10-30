@@ -1,0 +1,15 @@
+{
+  "harnessVersion": 1,
+  "command": "python -m qa.performance_readiness --validate",
+  "mode": "validation-only",
+  "loadExecution": false,
+  "inputs": ["qa/performance-scenarios.json", "qa/fixtures.json"],
+  "output": "validation report to stdout; no network or fixture mutation",
+  "futureRun": {
+    "generator": "approved synthetic generator only",
+    "clock": "monotonic duration plus frozen fixture timestamps",
+    "transport": "synthetic endpoint or in-process adapter",
+    "parallelism": "manifest resourceAssumptions",
+    "artifacts": "JSON metrics, histogram files, queue/resource samples, checksums, cleanup receipt"
+  }
+}
