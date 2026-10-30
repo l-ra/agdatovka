@@ -27,6 +27,9 @@ and authentication, trust/certificate configuration, audit evidence,
 CZ.NIC Datovka compatibility, and a separately documented Datovka desktop
 fork.
 
-See `docs/` for the source register, compatibility boundary, management API
-contract, and deferred performance scenarios. Human-readable progress is
-published from the `reporting` branch via GitHub Pages.
+See `docs/` for the source/legal registers, requirements traceability,
+compatibility matrix, target architecture and decisions, management API,
+security/trust model, data-flow/retention model, test strategy, CZ.NIC and
+Datovka fork plans, deferred performance scenarios, and release/restore
+runbook. Human-readable progress is published from the `reporting` branch via
+GitHub Pages.
