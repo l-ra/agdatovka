@@ -1,0 +1,12 @@
+name: ag-synthetic
+mode: network
+endpoint: https://AG_SYNTHETIC_HOST.invalid/api/v1
+trust_store: ${AG_SYNTHETIC_TRUST_STORE}
+client_certificate: ${AG_SYNTHETIC_CLIENT_CERTIFICATE}
+credential_ref: ${AG_SYNTHETIC_CREDENTIAL_REF}
+account_sender: ${AG_SYNTHETIC_SENDER_BOX}
+account_recipient: ${AG_SYNTHETIC_RECIPIENT_BOX}
+allow_hosts:
+  - AG_SYNTHETIC_HOST.invalid
+# Replace only with disposable, generated test values at runtime. Do not put
+# passwords, tokens, private keys, or real personal data in this file.

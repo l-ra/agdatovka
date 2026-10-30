@@ -1,0 +1,16 @@
+Subject: [PATCH] ag-datovka-compat: load a named endpoint profile
+
+This patch is intentionally kept as a reviewable patch artifact rather than
+silently modifying a vendored desktop tree. Apply it only to the pinned
+upstream checkout identified in UPSTREAM.md.
+
+Local behavior:
+
+* require an explicit profile name at launch;
+* load endpoint, trust-store, and credential-reference fields from that
+  profile;
+* reject production hostnames and inline secret material before networking;
+* keep the offline-fixture profile network-free.
+
+The patch does not add server code, former AGDatovka code/data, credentials,
+private keys, or a production endpoint.
