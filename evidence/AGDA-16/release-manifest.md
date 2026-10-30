@@ -17,6 +17,7 @@ private keys, or external ISDS request was used.
 | Source prerequisite base | `75782b28324c82d60b2323b7115ce8312fe9a767` |
 | Integration method | `git merge --no-ff --no-edit agent/agda-1-foundation` |
 | Local integration merge commit | `ec0fd82828a7cd1f02f9ff90c06a6def8b4e3c25` |
+| Final evidence commit | `0595195c2af0287aee94733ef72fbee7af233a61` |
 
 The merge preserves the AGDA-13, AGDA-14, and AGDA-15 evidence commits and the
 security remediation commit in reviewable local ancestry.
