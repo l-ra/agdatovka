@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>AG Datovka 2 — průběh projektu</title>
+  <title>AG Datovka 2 — foundation milestone</title>
   <style>
     :root { color-scheme: light; font: 16px/1.6 system-ui, sans-serif; }
     body { max-width: 58rem; margin: 0 auto; padding: 2rem 1rem 4rem; color: #202124; }
@@ -15,16 +15,35 @@
 <body>
   <main>
     <h1>AG Datovka 2</h1>
-    <p class="note">Veřejný průběžný report zatím obsahuje úvodní stav projektu. Další zápisy vzniknou po významných krocích implementace.</p>
-    <h2>Co vzniká</h2>
-    <p>Samostatná reimplementace veřejných rozhraní datových schránek s důrazem na zpětnou kompatibilitu, moderní rozšiřitelnost, bezpečnost a auditovatelnost.</p>
-    <h2>Co je nyní potvrzeno</h2>
+    <p class="note">Milník 30. října 2026: zdokumentovaný, zdrojově podložený základ pro nezávislou reimplementaci veřejných rozhraní datových schránek.</p>
+    <h2>Co se změnilo</h2>
+    <p>Commit <a href="https://github.com/l-ra/agdatovka/commit/111597ade20188581515939177251a8f2c3ff4af"><code>111597a</code></a> doplnil požadavky a jejich dohledatelnost, cílovou architekturu, správní API, hranice důvěry, datové toky, pravidla obnovy a vydání a plán kompatibility s Datovkou CZ.NIC.</p>
+    <h2>Co je potvrzeno</h2>
     <ul>
-      <li>Projekt začíná v čistém repozitáři.</li>
-      <li>Migrace existujících dat je samostatný projekt.</li>
-      <li>Výkonové testy jsou odložené, ale scénáře pro 1&nbsp;000 zpráv za minutu a velké zprávy jsou součástí návrhu.</li>
+      <li>Dokumenty jsou verzované a vzájemně provázané.</li>
+      <li>Zdrojový registr odkazuje na oficiální ISDS/CZ.NIC stránky, standardy a právní zdroje EU.</li>
+      <li>Správní API a architektura jsou specifikované pro plánování implementace.</li>
+      <li>Výkonové scénáře zahrnují budoucí profil 1&nbsp;000 zpráv za minutu a velké zprávy.</li>
     </ul>
-    <footer>Report je generovaný z verzovaných podkladů projektu. Technické podklady jsou v hlavní větvi repozitáře.</footer>
+    <h2>Co potvrzeno není</h2>
+    <ul>
+      <li>Nejde o tvrzení, že existuje serverová implementace, veřejné nasazení, výkonnostní výsledek, právní stanovisko nebo produkční interoperabilita.</li>
+      <li>WSDL/XSD balíček ISDS, syntetické přípravky a nezávislé bezpečnostní/QA přezkoumání zůstávají otevřené.</li>
+      <li>Migrace existujících dat je mimo rozsah; používají se pouze syntetická testovací data.</li>
+    </ul>
+    <h2>Faktické vyjádření odpovědného agenta</h2>
+    <blockquote>„Milník zachycuje zdrojově podložené požadavky, návrh rozhraní a architektury; implementace a interoperabilita jsou další ověřované kroky.“</blockquote>
+    <p><small>Agent statement — shrnutí obsahu commitu <a href="https://github.com/l-ra/agdatovka/commit/111597ade20188581515939177251a8f2c3ff4af"><code>111597a</code></a> od autora foundation baseline; nejde o tvrzení nad rámec tohoto commitu.</small></p>
+    <h2>Zdrojové podklady</h2>
+    <p><a href="https://github.com/l-ra/agdatovka/blob/111597ade20188581515939177251a8f2c3ff4af/reporting/2026-10-30-foundation.md">Úplný report</a> · <a href="https://github.com/l-ra/agdatovka/tree/111597ade20188581515939177251a8f2c3ff4af/docs/requirements">požadavky a zdroje</a> · <a href="https://github.com/l-ra/agdatovka/tree/111597ade20188581515939177251a8f2c3ff4af/docs/architecture">architektura</a> · <a href="https://github.com/l-ra/agdatovka/tree/111597ade20188581515939177251a8f2c3ff4af/docs/testing">testovací scénáře</a></p>
+    <h2>Další ověřitelné kroky</h2>
+    <ul>
+      <li>Implementovat správní API, model oprávnění, auditní události a deterministické testy.</li>
+      <li>Implementovat streamování obsahu, outbox a pipeline operací zpráv.</li>
+      <li>Připnout ISDS testovací profil a připravit SOAP/WSDL, účtenky, trust a lifecycle fixtures.</li>
+      <li>Provést nezávislý threat-model, conformance a red-team review před vydáním mimo syntetické prostředí.</li>
+    </ul>
+    <footer>Report je generovaný z verzovaných podkladů projektu. Zveřejněno z větve <code>reporting</code>; technické podklady jsou v hlavní větvi repozitáře.</footer>
   </main>
 </body>
 </html>
