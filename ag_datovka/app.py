@@ -777,7 +777,7 @@ class ManagementApp:
             events = [self._audit_json(row) for row in self.db.all("SELECT * FROM audit_events WHERE tenant_id=? ORDER BY occurred_at, id", (box_id,))]
             result = {"boxId": box_id, "format": format_name, "messages": messages, "auditEvents": events, "policyVersion": "ag-v1"}
             manifest_digest = digest(result)
-            self.db.connection.execute("INSERT INTO exports VALUES(?,?,?,?,?,?,?)", (export_id, box_id, "completed", format_name, manifest_digest, canonical_json(result), at, at))
+            self.db.connection.execute("INSERT INTO exports VALUES(?,?,?,?,?,?,?,?)", (export_id, box_id, "completed", format_name, manifest_digest, canonical_json(result), at, at))
             self._audit(actor, "export.created", "allowed", "export", export_id, request_id, correlation_id, None, box_id, manifest_digest)
             self.db.connection.commit()
             return 202, {"id": export_id, "boxId": box_id, "status": "completed", "format": format_name, "manifestDigest": manifest_digest, "createdAt": at, "requestId": request_id}
