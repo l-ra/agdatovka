@@ -1,0 +1,12 @@
+CZ.NIC Datovka compatibility fork
+
+This compatibility boundary refers to the open-source CZ.NIC Datovka project:
+https://gitlab.nic.cz/datovka/datovka
+
+Pinned source commit: 67f1f23056e6f96e4a93632c11418a8ce8ca0b2f
+
+Copyright and license notices from the upstream checkout are retained when a
+working tree is materialized. Local compatibility changes are limited to the
+endpoint-profile adapter described in patches/0001-endpoint-profile-layer.patch.
+This repository does not redistribute the upstream source or third-party
+dependencies.
