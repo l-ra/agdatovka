@@ -111,6 +111,26 @@ The `oidc:` caller token is a modern integration point with expiry and tenant
 scope; the existing `dev:` token remains a compatibility-only synthetic path.
 Both paths still require database membership and permission checks.
 
+## Tenant-isolation remediation (AGDA-12)
+
+Global policy resources are now a platform control-plane boundary: tenant
+owners and other tenant-scoped subjects cannot create or enumerate global
+roles, permissions, trust profiles, or endpoint profiles. Membership changes
+also cannot assign the `platform-admin` role from a tenant scope. These checks
+are enforced at each route boundary and are independent of caller-supplied
+`boxId` values.
+
+Identity-bearing references are fail-closed. Authentication method bindings
+and message sender identities must resolve to an active identity belonging to
+the request's box; a reference from another box returns the stable
+`cross_tenant_reference` problem with a field error and creates a denied
+authorization audit record. Recipient `targetBoxId` remains a deliberate
+cross-tenant message-routing field and is not treated as an identity binding.
+
+Regression evidence is in the two focused tests in `tests/test_management_api.py`:
+`test_tenant_cannot_mutate_global_policy_or_assign_platform_role` and
+`test_cross_tenant_identity_references_are_rejected`.
+
 `fixtures/security/trust-vectors.json` contains certificate facts only and
 includes valid, expired, wrong-host, wrong-usage, revoked, and unknown-CA
 cases. Audit remains append-only and digest-linked without recording tokens or

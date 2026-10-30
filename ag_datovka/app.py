@@ -447,7 +447,7 @@ class ManagementApp:
     def _trust_profiles(self, method: str, rest: list[str], body: dict[str, Any], actor: Actor, request_id: str, correlation_id: str) -> tuple[int, dict[str, Any]]:
         if method != "POST" or rest:
             raise Problem(405, "method_not_allowed", "Method not allowed", "Only POST is supported for trust profiles.")
-        self._require(actor, "auth:manage", body.get("boxId"))
+        self._require_platform(actor)
         try:
             profile = TrustProfile.from_mapping(body)
         except TrustError as error:
@@ -461,7 +461,7 @@ class ManagementApp:
     def _endpoint_profiles(self, method: str, rest: list[str], body: dict[str, Any], actor: Actor, request_id: str, correlation_id: str) -> tuple[int, dict[str, Any]]:
         if method != "POST" or rest:
             raise Problem(405, "method_not_allowed", "Method not allowed", "Only POST is supported for endpoint profiles.")
-        self._require(actor, "auth:manage", body.get("boxId"))
+        self._require_platform(actor)
         try:
             profile = validate_endpoint(body)
         except TrustError as error:
@@ -557,6 +557,8 @@ class ManagementApp:
             role = self.db.one("SELECT * FROM roles WHERE name=?", (role_name,))
             if not role:
                 raise Problem(422, "invalid_role", "Invalid role", "The requested role does not exist.")
+            if not actor.platform and role_name == "platform-admin":
+                raise Problem(403, "forbidden", "Forbidden", "Tenant callers cannot assign the platform-admin role.")
             at = now_iso()
             self.db.connection.execute("INSERT OR IGNORE INTO memberships VALUES(?,?,?,?)", (box_id, identity_id, role["id"], at))
             self._audit(actor, "membership.changed", "allowed", "identity", identity_id, request_id, correlation_id, None, box_id)
@@ -608,7 +610,7 @@ class ManagementApp:
         raise Problem(405, "method_not_allowed", "Method not allowed", "This method is not supported for an identity.")
 
     def _roles(self, method: str, rest: list[str], body: dict[str, Any], actor: Actor, request_id: str, correlation_id: str) -> tuple[int, dict[str, Any]]:
-        self._require(actor, "policy:manage", None)
+        self._require_platform(actor)
         if method == "GET":
             rows = self.db.all("SELECT * FROM roles ORDER BY name")
             return 200, {"items": [{"id": r["id"], "name": r["name"], "description": r["description"]} for r in rows], "requestId": request_id}
@@ -627,7 +629,7 @@ class ManagementApp:
         raise Problem(405, "method_not_allowed", "Method not allowed", "Only GET and POST are supported for roles.")
 
     def _permissions(self, method: str, rest: list[str], body: dict[str, Any], actor: Actor, request_id: str, correlation_id: str) -> tuple[int, dict[str, Any]]:
-        self._require(actor, "policy:manage", None)
+        self._require_platform(actor)
         if method == "GET":
             rows = self.db.all("SELECT * FROM permissions ORDER BY code")
             return 200, {"items": [{"id": r["id"], "code": r["code"], "description": r["description"]} for r in rows], "requestId": request_id}
@@ -657,10 +659,13 @@ class ManagementApp:
         forbidden = {"secret", "privateKey", "password", "token", "credential"}
         if forbidden.intersection(metadata):
             raise Problem(422, "secret_not_allowed", "Secret not allowed", "Authentication method metadata cannot contain secret material.")
-        self.db.connection.execute("INSERT INTO auth_methods VALUES(?,?,?,?,?,?,?,?)", (method_id, box_id, body.get("identityId"), self._required(body, "type"), body.get("label", body["type"]), canonical_json(metadata), "active", at, at))
+        identity_id = body.get("identityId")
+        if identity_id is not None:
+            self._identity_in_box(identity_id, box_id, "identityId")
+        self.db.connection.execute("INSERT INTO auth_methods VALUES(?,?,?,?,?,?,?,?)", (method_id, box_id, identity_id, self._required(body, "type"), body.get("label", body["type"]), canonical_json(metadata), "active", at, at))
         self._audit(actor, "auth_method.changed", "allowed", "auth_method", method_id, request_id, correlation_id, None, box_id)
         self.db.connection.commit()
-        return 201, {"id": method_id, "boxId": box_id, "identityId": body.get("identityId"), "type": body["type"], "label": body.get("label", body["type"]), "metadata": metadata, "status": "active", "createdAt": at, "requestId": request_id}
+        return 201, {"id": method_id, "boxId": box_id, "identityId": identity_id, "type": body["type"], "label": body.get("label", body["type"]), "metadata": metadata, "status": "active", "createdAt": at, "requestId": request_id}
 
     def _messages(self, method: str, rest: list[str], body: dict[str, Any], actor: Actor, request_id: str, correlation_id: str, query: Mapping[str, list[str]], headers: Mapping[str, str]) -> tuple[int, dict[str, Any]]:
         if rest == ["search"] and method == "GET":
@@ -677,7 +682,10 @@ class ManagementApp:
             message_id = new_id("msg")
             at = now_iso()
             subject = self._required(body, "subject")
-            self.db.connection.execute("INSERT INTO messages VALUES(?,?,?,?,?,?,?,?,?,?)", (message_id, box_id, body.get("senderIdentityId"), body.get("targetBoxId"), subject, "draft", body.get("contentDigest"), canonical_json({key: value for key, value in body.items() if key not in {"boxId", "subject", "senderIdentityId", "targetBoxId", "contentDigest"}}), at, at))
+            sender_identity_id = body.get("senderIdentityId")
+            if sender_identity_id is not None:
+                self._identity_in_box(sender_identity_id, box_id, "senderIdentityId")
+            self.db.connection.execute("INSERT INTO messages VALUES(?,?,?,?,?,?,?,?,?,?)", (message_id, box_id, sender_identity_id, body.get("targetBoxId"), subject, "draft", body.get("contentDigest"), canonical_json({key: value for key, value in body.items() if key not in {"boxId", "subject", "senderIdentityId", "targetBoxId", "contentDigest"}}), at, at))
             self._record_message_event(message_id, "draft_created", None, "ag-v1", None, actor.subject, 0)
             self._audit(actor, "message.created", "allowed", "message", message_id, request_id, correlation_id, None, box_id, body.get("contentDigest"))
             self.db.connection.commit()
@@ -842,6 +850,16 @@ class ManagementApp:
         )
         if not row:
             raise Problem(403, "forbidden", "Forbidden", "The authenticated subject is not authorized for this action.")
+
+    def _require_platform(self, actor: Actor) -> None:
+        if not actor.platform:
+            raise Problem(403, "forbidden", "Forbidden", "Only the platform control plane may change global policy.")
+
+    def _identity_in_box(self, identity_id: str, box_id: str, field: str) -> sqlite3.Row:
+        identity = self.db.one("SELECT * FROM identities WHERE id=? AND box_id=? AND status='active'", (identity_id, box_id))
+        if not identity:
+            raise Problem(422, "cross_tenant_reference", "Invalid tenant reference", f"{field} must reference an active identity in the requested box.", field_errors=[{"field": field, "code": "cross_tenant_reference"}])
+        return identity
 
     def _box_or_404(self, box_id: str, actor: Actor, request_id: str) -> sqlite3.Row:
         box = self.db.one("SELECT * FROM boxes WHERE id=?", (box_id,))
