@@ -1,0 +1,12 @@
+name: isds-public-test
+mode: network
+endpoint: https://ISDS_PUBLIC_TEST_HOST.invalid/api/v1
+trust_store: ${ISDS_PUBLIC_TEST_TRUST_STORE}
+client_certificate: ${ISDS_PUBLIC_TEST_CLIENT_CERTIFICATE}
+credential_ref: ${ISDS_PUBLIC_TEST_CREDENTIAL_REF}
+account_sender: ${ISDS_PUBLIC_TEST_SENDER_BOX}
+account_recipient: ${ISDS_PUBLIC_TEST_RECIPIENT_BOX}
+allow_hosts:
+  - ISDS_PUBLIC_TEST_HOST.invalid
+# A separately approved synthetic account is required. This placeholder must
+# never be replaced with a production hostname or credential.

@@ -1,0 +1,8 @@
+name: offline-fixture
+mode: offline
+endpoint: offline://fixture
+trust_store: none
+client_certificate: none
+credential_ref: none
+fixture: fixtures/message.json
+allow_hosts: []
