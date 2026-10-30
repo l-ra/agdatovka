@@ -95,3 +95,23 @@ contract, the trust fixtures, content handling, and public reporting before a
 release outside synthetic/test environments. Findings are accepted as a
 separate review task; adverse findings are completed findings, not silently
 converted into approval.
+
+## Implemented boundary (AGDA-6)
+
+The local implementation persists trust profiles, endpoint profiles, and
+secret-store key handles as separate records. Trust profiles require pinned
+SHA-256 anchor fingerprints, issuers, SAN hostnames, key usage, and an explicit
+revocation policy. Endpoint profiles accept HTTPS only when the exact hostname
+is allow-listed; credentials and unsafe ports are rejected. Key records contain
+only `vault:`, `hsm:`, or `kms:` handles, never private key material.
+
+Certificate validation fails closed for incomplete/unverified chains, expired
+certificates, wrong SAN, wrong key usage, revoked status, and unknown issuers.
+The `oidc:` caller token is a modern integration point with expiry and tenant
+scope; the existing `dev:` token remains a compatibility-only synthetic path.
+Both paths still require database membership and permission checks.
+
+`fixtures/security/trust-vectors.json` contains certificate facts only and
+includes valid, expired, wrong-host, wrong-usage, revoked, and unknown-CA
+cases. Audit remains append-only and digest-linked without recording tokens or
+key material.
