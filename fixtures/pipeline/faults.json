@@ -1,0 +1,11 @@
+{
+  "profile": "synthetic-pipeline-v1",
+  "cases": [
+    {"id": "duplicate-submit", "input": "op-duplicate", "expected": "one queue item"},
+    {"id": "object-store-delay", "input": "delayed chunk iterator", "expected": "manifest published only after checksum"},
+    {"id": "upstream-timeout", "input": "timeout", "expected": "bounded exponential retry"},
+    {"id": "upstream-429", "input": "429", "expected": "retry_wait"},
+    {"id": "upstream-5xx", "input": "503", "expected": "dead_letter after max attempts"},
+    {"id": "worker-restart", "input": "expired lease", "expected": "another worker reclaims item"}
+  ]
+}
