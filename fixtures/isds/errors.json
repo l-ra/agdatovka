@@ -1,0 +1,1 @@
+[{"messageId":"synthetic-msg-001","code":"TEMPORARY_UNAVAILABLE","message":"Synthetic upstream unavailable","retryable":true},{"messageId":"synthetic-msg-001","code":"INVALID_RECIPIENT","message":"Synthetic recipient rejected","retryable":false}]

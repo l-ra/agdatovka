@@ -1,0 +1,1 @@
+{"messageId":"synthetic-msg-001","occurredAt":"2026-10-30T10:00:00Z","envelope":{"senderBoxId":"synthetic-box-001","recipientBoxId":"synthetic-box-002","subject":"Synthetic notice"},"attachments":[{"filename":"notice.txt","mediaType":"text/plain","contentBase64":"c3ludGhldGljIGNvbnRlbnQ="}]}
