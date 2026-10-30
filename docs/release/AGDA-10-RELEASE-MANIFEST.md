@@ -4,7 +4,7 @@
 | --- | --- |
 | Source commit | `75782b28324c82d60b2323b7115ce8312fe9a767` |
 | Source branch | `agent/agda-1-foundation` |
-| Integration merge commit | `c8793553d2033fd09d043d517006d2ed95f06f95` (includes non-force ancestry reconciliation with published `main`) |
+| Integration merge commit | `e3ae3126a195000fbad396babebad469a0137fc0` (non-FF merge of source `75782b28324c82d60b2323b7115ce8312fe9a767`); final ancestry-reconciliation merge `c8793553d2033fd09d043d517006d2ed95f06f95` |
 | API/schema version | `/api/v1`; OpenAPI document `docs/management/openapi.v1.json` |
 | Fixture version | `fixtures/api/v1/contract.json` (repository commit version) |
 | Adapter/WSDL checksums | Not applicable; no external adapter or WSDL is included |
