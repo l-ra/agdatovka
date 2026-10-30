@@ -1,0 +1,13 @@
+[build-system]
+requires = []
+build-backend = "setuptools.build_meta:__legacy__"
+
+[project]
+name = "ag-datovka"
+version = "0.1.0"
+description = "Standalone, migration-free AG Datovka management API"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.scripts]
+ag-datovka-api = "ag_datovka.server:main"

@@ -1,0 +1,124 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "AG Datovka Management API",
+    "version": "1.0.0",
+    "description": "Standalone, migration-free management contract. ISDS SOAP and migration are separate boundaries."
+  },
+  "servers": [{"url": "/api/v1"}],
+  "security": [{"bearerAuth": []}],
+  "tags": [
+    {"name": "boxes"}, {"name": "policy"}, {"name": "messages"},
+    {"name": "operations"}, {"name": "exports"}, {"name": "audit"}
+  ],
+  "paths": {
+    "/boxes": {
+      "get": {"tags": ["boxes"], "responses": {"200": {"description": "Authorized boxes", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PageBox"}}}}}},
+      "post": {"tags": ["boxes"], "operationId": "createBox", "requestBody": {"$ref": "#/components/requestBodies/Json"}, "responses": {"201": {"description": "Created box", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Box"}}}}, "400": {"$ref": "#/components/responses/Problem"}, "409": {"$ref": "#/components/responses/Problem"}}}
+    },
+    "/boxes/{boxId}": {
+      "parameters": [{"$ref": "#/components/parameters/BoxId"}],
+      "get": {"tags": ["boxes"], "responses": {"200": {"description": "Box", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Box"}}}}, "404": {"$ref": "#/components/responses/Problem"}}},
+      "patch": {"tags": ["boxes"], "requestBody": {"$ref": "#/components/requestBodies/Json"}, "responses": {"200": {"description": "Updated box", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Box"}}}}, "403": {"$ref": "#/components/responses/Problem"}}}
+    },
+    "/boxes/{boxId}/identities": {
+      "parameters": [{"$ref": "#/components/parameters/BoxId"}],
+      "post": {"tags": ["policy"], "requestBody": {"$ref": "#/components/requestBodies/Json"}, "responses": {"201": {"description": "Created identity", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Identity"}}}}, "403": {"$ref": "#/components/responses/Problem"}}}
+    },
+    "/identities/{identityId}": {
+      "parameters": [{"$ref": "#/components/parameters/IdentityId"}],
+      "get": {"tags": ["policy"], "responses": {"200": {"description": "Identity", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Identity"}}}}}},
+      "patch": {"tags": ["policy"], "requestBody": {"$ref": "#/components/requestBodies/Json"}, "responses": {"200": {"description": "Updated identity"}}},
+      "delete": {"tags": ["policy"], "responses": {"204": {"description": "Disabled identity"}}}
+    },
+    "/boxes/{boxId}/members/{identityId}": {
+      "parameters": [{"$ref": "#/components/parameters/BoxId"}, {"$ref": "#/components/parameters/IdentityId"}],
+      "put": {"tags": ["policy"], "requestBody": {"$ref": "#/components/requestBodies/Json"}, "responses": {"200": {"description": "Assigned membership"}, "403": {"$ref": "#/components/responses/Problem"}}}
+    },
+    "/roles": {
+      "get": {"tags": ["policy"], "responses": {"200": {"description": "Roles"}}},
+      "post": {"tags": ["policy"], "requestBody": {"$ref": "#/components/requestBodies/Json"}, "responses": {"201": {"description": "Created role"}}}
+    },
+    "/permissions": {
+      "get": {"tags": ["policy"], "responses": {"200": {"description": "Permissions"}}},
+      "post": {"tags": ["policy"], "requestBody": {"$ref": "#/components/requestBodies/Json"}, "responses": {"201": {"description": "Created permission"}}}
+    },
+    "/auth-methods": {
+      "post": {"tags": ["policy"], "requestBody": {"$ref": "#/components/requestBodies/Json"}, "responses": {"201": {"description": "Registered metadata-only auth method"}, "422": {"$ref": "#/components/responses/Problem"}}}
+    },
+    "/messages": {
+      "get": {"tags": ["messages"], "parameters": [{"$ref": "#/components/parameters/BoxQuery"}, {"$ref": "#/components/parameters/Limit"}, {"$ref": "#/components/parameters/Cursor"}], "responses": {"200": {"description": "Message page", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PageMessage"}}}}}},
+      "post": {"tags": ["messages"], "requestBody": {"$ref": "#/components/requestBodies/Json"}, "responses": {"201": {"description": "Draft message", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Message"}}}}, "422": {"$ref": "#/components/responses/Problem"}}}
+    },
+    "/messages/search": {
+      "get": {"tags": ["messages"], "parameters": [{"$ref": "#/components/parameters/BoxQuery"}, {"$ref": "#/components/parameters/Query"}, {"$ref": "#/components/parameters/Limit"}, {"$ref": "#/components/parameters/Cursor"}], "responses": {"200": {"description": "Authorized message metadata page", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PageMessage"}}}}}}
+    },
+    "/messages/{messageId}": {
+      "parameters": [{"$ref": "#/components/parameters/MessageId"}],
+      "get": {"tags": ["messages"], "responses": {"200": {"description": "Message metadata", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Message"}}}}, "404": {"$ref": "#/components/responses/Problem"}}}
+    },
+    "/messages/{messageId}/attachments": {
+      "parameters": [{"$ref": "#/components/parameters/MessageId"}],
+      "post": {"tags": ["messages"], "description": "The production boundary is a bounded streaming upload. The local fixture stores only metadata and digest.", "requestBody": {"$ref": "#/components/requestBodies/Json"}, "responses": {"201": {"description": "Attachment content reference"}, "413": {"$ref": "#/components/responses/Problem"}}}
+    },
+    "/messages/{messageId}/submit": {
+      "parameters": [{"$ref": "#/components/parameters/MessageId"}],
+      "post": {"tags": ["messages"], "requestBody": {"$ref": "#/components/requestBodies/Json"}, "responses": {"202": {"description": "Queued operation", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OperationAccepted"}}}}, "409": {"$ref": "#/components/responses/Problem"}}}
+    },
+    "/messages/{messageId}/events": {
+      "parameters": [{"$ref": "#/components/parameters/MessageId"}],
+      "get": {"tags": ["messages"], "responses": {"200": {"description": "Lifecycle events"}}}
+    },
+    "/messages/{messageId}/receipts/{receiptId}": {
+      "parameters": [{"$ref": "#/components/parameters/MessageId"}, {"$ref": "#/components/parameters/ReceiptId"}],
+      "get": {"tags": ["messages"], "responses": {"200": {"description": "Immutable receipt metadata"}, "404": {"$ref": "#/components/responses/Problem"}}}
+    },
+    "/operations/{operationId}": {
+      "parameters": [{"$ref": "#/components/parameters/OperationId"}],
+      "get": {"tags": ["operations"], "responses": {"200": {"description": "Operation state", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Operation"}}}}}}
+    },
+    "/operations/{operationId}/cancel": {
+      "parameters": [{"$ref": "#/components/parameters/OperationId"}],
+      "post": {"tags": ["operations"], "responses": {"202": {"description": "Cancellation accepted"}, "409": {"$ref": "#/components/responses/Problem"}}}
+    },
+    "/exports": {
+      "post": {"tags": ["exports"], "requestBody": {"$ref": "#/components/requestBodies/Json"}, "responses": {"202": {"description": "Export job", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Export"}}}}}}
+    },
+    "/exports/{exportId}": {
+      "parameters": [{"$ref": "#/components/parameters/ExportId"}],
+      "get": {"tags": ["exports"], "responses": {"200": {"description": "Export state and manifest", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Export"}}}}}}
+    },
+    "/audit/events": {
+      "get": {"tags": ["audit"], "parameters": [{"$ref": "#/components/parameters/BoxQuery"}, {"$ref": "#/components/parameters/Limit"}, {"$ref": "#/components/parameters/Cursor"}], "responses": {"200": {"description": "Hash-linked audit page"}, "403": {"$ref": "#/components/responses/Problem"}}}
+    }
+  },
+  "components": {
+    "securitySchemes": {"bearerAuth": {"type": "http", "scheme": "bearer", "bearerFormat": "scoped-token"}},
+    "parameters": {
+      "BoxId": {"name": "boxId", "in": "path", "required": true, "schema": {"type": "string"}},
+      "IdentityId": {"name": "identityId", "in": "path", "required": true, "schema": {"type": "string"}},
+      "MessageId": {"name": "messageId", "in": "path", "required": true, "schema": {"type": "string"}},
+      "ReceiptId": {"name": "receiptId", "in": "path", "required": true, "schema": {"type": "string"}},
+      "OperationId": {"name": "operationId", "in": "path", "required": true, "schema": {"type": "string"}},
+      "ExportId": {"name": "exportId", "in": "path", "required": true, "schema": {"type": "string"}},
+      "BoxQuery": {"name": "boxId", "in": "query", "required": true, "schema": {"type": "string"}},
+      "Query": {"name": "q", "in": "query", "required": false, "schema": {"type": "string"}},
+      "Limit": {"name": "limit", "in": "query", "required": false, "schema": {"type": "integer", "minimum": 1, "maximum": 100, "default": 25}},
+      "Cursor": {"name": "cursor", "in": "query", "required": false, "schema": {"type": "string", "format": "base64url"}}
+    },
+    "requestBodies": {"Json": {"required": true, "content": {"application/json": {"schema": {"type": "object", "additionalProperties": true}}}}},
+    "responses": {"Problem": {"description": "RFC 9457 problem details", "content": {"application/problem+json": {"schema": {"$ref": "#/components/schemas/Problem"}}}}},
+    "schemas": {
+      "Problem": {"type": "object", "required": ["type", "code", "title", "status", "detail", "requestId", "retryable"], "properties": {"type": {"type": "string", "format": "uri"}, "code": {"type": "string"}, "title": {"type": "string"}, "status": {"type": "integer"}, "detail": {"type": "string"}, "requestId": {"type": "string"}, "retryable": {"type": "boolean"}, "fieldErrors": {"type": "array", "items": {"type": "object"}}}},
+      "Box": {"type": "object", "required": ["id", "name", "kind", "status", "createdAt", "updatedAt"], "properties": {"id": {"type": "string"}, "name": {"type": "string"}, "kind": {"type": "string"}, "status": {"type": "string"}, "config": {"type": "object"}, "createdAt": {"type": "string", "format": "date-time"}, "updatedAt": {"type": "string", "format": "date-time"}}},
+      "Identity": {"type": "object", "required": ["id", "boxId", "subject", "status"], "properties": {"id": {"type": "string"}, "boxId": {"type": "string"}, "subject": {"type": "string"}, "displayName": {"type": "string"}, "status": {"type": "string"}}},
+      "Message": {"type": "object", "required": ["id", "boxId", "subject", "status", "createdAt", "updatedAt"], "properties": {"id": {"type": "string"}, "boxId": {"type": "string"}, "senderIdentityId": {"type": ["string", "null"]}, "targetBoxId": {"type": ["string", "null"]}, "subject": {"type": "string"}, "status": {"type": "string"}, "contentDigest": {"type": ["string", "null"]}, "metadata": {"type": "object"}, "createdAt": {"type": "string", "format": "date-time"}, "updatedAt": {"type": "string", "format": "date-time"}}},
+      "Operation": {"type": "object", "required": ["id", "status", "attempts", "retryable"], "properties": {"id": {"type": "string"}, "boxId": {"type": "string"}, "messageId": {"type": ["string", "null"]}, "kind": {"type": "string"}, "status": {"type": "string"}, "attempts": {"type": "integer"}, "retryable": {"type": "boolean"}}},
+      "OperationAccepted": {"type": "object", "required": ["operationId", "status", "acceptedAt", "requestId"], "properties": {"operationId": {"type": "string"}, "messageId": {"type": "string"}, "status": {"type": "string"}, "acceptedAt": {"type": "string", "format": "date-time"}, "requestId": {"type": "string"}}},
+      "Export": {"type": "object", "required": ["id", "boxId", "status", "format", "manifestDigest"], "properties": {"id": {"type": "string"}, "boxId": {"type": "string"}, "status": {"type": "string"}, "format": {"type": "string"}, "manifestDigest": {"type": "string"}, "result": {"type": "object"}}},
+      "AuditEvent": {"type": "object", "required": ["id", "tenantId", "actor", "action", "outcome", "policyVersion", "requestId", "occurredAt", "eventDigest"], "properties": {"id": {"type": "string"}, "tenantId": {"type": "string"}, "actor": {"type": "string"}, "action": {"type": "string"}, "outcome": {"type": "string"}, "policyVersion": {"type": "string"}, "requestId": {"type": "string"}, "correlationId": {"type": "string"}, "occurredAt": {"type": "string", "format": "date-time"}, "previousDigest": {"type": ["string", "null"]}, "eventDigest": {"type": "string"}}},
+      "PageBox": {"type": "object", "required": ["items", "nextCursor", "requestId"], "properties": {"items": {"type": "array", "items": {"$ref": "#/components/schemas/Box"}}, "nextCursor": {"type": ["string", "null"]}, "requestId": {"type": "string"}}},
+      "PageMessage": {"type": "object", "required": ["items", "nextCursor", "requestId"], "properties": {"items": {"type": "array", "items": {"$ref": "#/components/schemas/Message"}}, "nextCursor": {"type": ["string", "null"]}, "requestId": {"type": "string"}}}
+    }
+  }
+}

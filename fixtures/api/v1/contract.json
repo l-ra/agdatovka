@@ -1,0 +1,27 @@
+{
+  "fixtureVersion": "ag-v1-contract-2026-10-30",
+  "syntheticOnly": true,
+  "authentication": {
+    "localTokenFormat": "Bearer dev:<boxId>:<identityId>",
+    "platformBootstrapToken": "Bearer dev:platform",
+    "productionCredentialsAllowed": false
+  },
+  "requiredHeaders": {
+    "mutating": ["Authorization", "Idempotency-Key", "Correlation-Id"],
+    "allResponses": ["requestId"]
+  },
+  "problemJsonRequired": [
+    "type", "code", "title", "status", "detail", "requestId", "retryable"
+  ],
+  "scenarios": [
+    {"id": "box-create", "request": "POST /api/v1/boxes", "expectedStatus": 201, "auditAction": "box.created"},
+    {"id": "tenant-deny", "request": "GET /api/v1/boxes/{otherBoxId}", "expectedStatus": 404, "expectedCode": "not_found"},
+    {"id": "policy-deny", "request": "POST /api/v1/roles", "expectedStatus": 403, "expectedCode": "forbidden"},
+    {"id": "idempotency-replay", "request": "POST /api/v1/boxes with same key and body", "expectedStatus": 201, "replayHeader": "Idempotent-Replay: true"},
+    {"id": "idempotency-conflict", "request": "POST /api/v1/boxes with same key and different body", "expectedStatus": 409, "expectedCode": "idempotency_conflict"},
+    {"id": "cursor-pagination", "request": "GET /api/v1/messages/search?limit=2", "expected": "opaque stable cursor and bounded limit"},
+    {"id": "audit-chain", "request": "GET /api/v1/audit/events", "expected": "previousDigest links to the preceding tenant event"},
+    {"id": "secret-boundary", "request": "POST /api/v1/auth-methods with metadata.secret", "expectedStatus": 422, "expectedCode": "secret_not_allowed"}
+  ],
+  "notImplementedByDesign": ["ISDS SOAP", "migration", "production credentials", "raw attachment persistence"]
+}
