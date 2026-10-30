@@ -2,8 +2,11 @@
 
 This is the modern, versioned management contract. It is deliberately separate
 from an ISDS SOAP/WSDL contract; the compatibility adapter owns that mapping.
-The API is specified, not implemented. See `docs/compatibility/PUBLIC-INTERFACES.md`
-for the reference behavior matrix.
+The local dependency-free foundation implements this contract for synthetic
+fixtures. It is not a production deployment, ISDS SOAP implementation, or
+migration path. See `docs/compatibility/PUBLIC-INTERFACES.md` for the reference
+behavior matrix and `docs/management/openapi.v1.json` for the machine-readable
+schema.
 
 ## Contract rules
 
