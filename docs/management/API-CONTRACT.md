@@ -32,7 +32,7 @@ schema.
 | `GET/PATCH /boxes/{boxId}` | Read/update non-secret box configuration | `200` box | `box:read`, `box:update` |
 | `POST /boxes/{boxId}/identities` | Add an identity binding | `201` identity | `identity:manage` |
 | `GET/PATCH/DELETE /identities/{id}` | Manage identity metadata/status | `200/204` | `identity:manage` |
-| `POST /roles`, `POST /permissions` | Define scoped roles and permissions | `201` | `policy:manage` |
+| `POST /roles`, `POST /permissions` | Define platform-global roles and permissions | `201` | platform control-plane authorization |
 | `PUT /boxes/{boxId}/members/{identityId}` | Assign role(s) within a box | `200` membership | `membership:manage` |
 | `POST /auth-methods` | Register an allowed auth method/profile, never a raw secret | `201` | `auth:manage` |
 | `POST /messages` | Create a message draft with metadata and content references | `201` draft | `message:create` |
@@ -101,15 +101,22 @@ Permissions are scoped to a tenant/box and evaluated after authentication:
 
 | Role example | Allowed | Explicitly not implied |
 | --- | --- | --- |
-| `box-owner` | Box config, membership, policy, message read/send | Trust-root administration or platform administration |
+| `box-owner` | Box config, membership, message read/send | Global policy, trust-root administration, or platform administration |
 | `box-operator` | Compose/send/read messages and receipts | Membership changes, exports outside scope |
 | `auditor` | Read audit, lifecycle, receipts, and approved exports | Send, delete, or change policy |
-| `trust-admin` | Manage named trust profiles and rotation metadata | Read message content or grant message permissions |
+| `trust-admin` | Tenant-scoped trust/key metadata where explicitly exposed | Global policy, trust-root administration, or grant message permissions |
 | `platform-admin` | Platform-wide operations with separate break-glass audit | Routine tenant impersonation |
 
 Every allow/deny decision records subject, tenant, resource, action, policy
 version, and reason. A certificate or upstream account is not itself an AG
 role.
+
+Global roles, permissions, trust profiles, and endpoint profiles are managed
+only by the platform control plane. Every tenant resource boundary re-checks
+the authenticated tenant and permission; caller-supplied tenant identifiers
+do not widen scope. Identity references in authentication methods and message
+senders must belong to the same box, otherwise the request fails with
+`cross_tenant_reference`.
 
 ## Audit events
 

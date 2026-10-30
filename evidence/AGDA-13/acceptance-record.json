@@ -1,0 +1,27 @@
+{
+  "recordVersion": 1,
+  "issue": "AGDA-13",
+  "status": "accepted-as-readiness-not-performance-result",
+  "execution": {
+    "productionLoadRun": false,
+    "productionEndpointContacted": false,
+    "credentialsUsed": false,
+    "realContentUsed": false
+  },
+  "checks": [
+    {"command": "python3 -m qa.performance_readiness --validate", "result": "passed"},
+    {"command": "python3 -m unittest tests.test_qa_conformance tests.test_performance_readiness", "result": "passed"},
+    {"command": "git diff --check", "result": "passed"}
+  ],
+  "acceptance": {
+    "targetMessagesPerMinute": 1000,
+    "sustainedMinutes": 30,
+    "scenarioCount": 10,
+    "lostOperationsMaximum": 0,
+    "duplicateOperationsMaximum": 0,
+    "largeMessageProfiles": ["maximum", "one-byte-over-maximum", "interrupted-resume"],
+    "preRunAgreementRequired": ["p99AdmissionLatency", "errorRate", "queueDrain", "retryBudget", "workerMemory", "scaling", "telemetryOverhead"]
+  },
+  "evidenceSources": ["qa/performance-scenarios.json", "qa/performance-harness.json", "qa/fixtures.json", "evidence/AGDA-13/README.md"],
+  "measurementCaveat": "Passing this record proves scenario and safety-contract readiness only; it does not prove throughput, latency, capacity, or SLO attainment."
+}

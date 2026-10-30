@@ -59,6 +59,31 @@ class ManagementApiTest(unittest.TestCase):
         self.assertEqual(status, 403)
         self.assertEqual(audit["code"], "forbidden")
 
+    def test_tenant_cannot_mutate_global_policy_or_assign_platform_role(self):
+        box = self.create_box("Policy tenant")
+        token = f"dev:{box['id']}:{box['ownerIdentityId']}"
+        status, _, problem = self.call("POST", "/api/v1/roles", {"name": "tenant-global"}, token=token, key="tenant-role")
+        self.assertEqual((status, problem["code"]), (403, "forbidden"))
+        status, _, problem = self.call("POST", "/api/v1/permissions", {"code": "tenant-global"}, token=token, key="tenant-permission")
+        self.assertEqual((status, problem["code"]), (403, "forbidden"))
+        status, _, problem = self.call("POST", "/api/v1/trust-profiles", {"name": "tenant-root", "version": "1", "anchorFingerprints": ["sha256:" + "a" * 64], "hostnames": ["isds.synthetic.test"]}, token=token, key="tenant-trust")
+        self.assertEqual((status, problem["code"]), (403, "forbidden"))
+        identity_status, _, identity = self.call("POST", f"/api/v1/boxes/{box['id']}/identities", {"subject": "operator"}, token=token, key="tenant-identity")
+        self.assertEqual(identity_status, 201)
+        status, _, problem = self.call("PUT", f"/api/v1/boxes/{box['id']}/members/{identity['id']}", {"role": "platform-admin"}, token=token, key="tenant-platform-role")
+        self.assertEqual((status, problem["code"]), (403, "forbidden"))
+
+    def test_cross_tenant_identity_references_are_rejected(self):
+        first = self.create_box("Reference source")
+        second = self.create_box("Reference target")
+        token = f"dev:{first['id']}:{first['ownerIdentityId']}"
+        status, _, problem = self.call("POST", "/api/v1/messages", {"boxId": first["id"], "senderIdentityId": second["ownerIdentityId"], "subject": "must reject"}, token=token, key="cross-tenant-sender")
+        self.assertEqual(status, 422)
+        self.assertEqual(problem["code"], "cross_tenant_reference")
+        status, _, problem = self.call("POST", "/api/v1/auth-methods", {"boxId": first["id"], "identityId": second["ownerIdentityId"], "type": "oidc"}, token=token, key="cross-tenant-auth")
+        self.assertEqual(status, 422)
+        self.assertEqual(problem["code"], "cross_tenant_reference")
+
     def test_cursor_pagination_is_bounded_and_stable(self):
         box = self.create_box("Pagination box")
         for number in range(5):
