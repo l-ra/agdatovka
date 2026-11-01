@@ -249,8 +249,22 @@ class ManagementApiTest(unittest.TestCase):
         self.assertEqual((status, released["active"]), (200, False))
         status, _, tombstone = self.call("POST", "/api/v1/retention/deletion-requests", {"boxId": box["id"], "resourceType": "message", "resourceId": "synthetic-message"}, key="retention-delete")
         self.assertEqual((status, tombstone["status"]), (202, "tombstoned"))
+        self.assertEqual((tombstone["dataClass"], tombstone["jobStatus"]), ("ordinary", "completed"))
         status, _, restore = self.call("POST", "/api/v1/retention/restore", {"boxId": box["id"], "exportId": export["id"], "namespace": "restore-test"}, key="retention-restore")
         self.assertEqual((status, restore["verified"], restore["checks"]["blindSendReplay"]), (200, True, False))
+        self.assertEqual(restore["policyVersion"], "ag-retention-v1")
+        self.assertTrue(restore["checks"]["messageEventHashLinks"])
+
+    def test_restore_fails_closed_when_export_event_manifest_is_tampered(self):
+        box = self.create_box("Restore integrity")
+        status, _, export = self.call("POST", "/api/v1/exports", {"boxId": box["id"], "format": "jsonl"}, key="restore-integrity-export")
+        self.assertEqual(status, 202)
+        self.app.db.connection.execute("UPDATE exports SET result_json=? WHERE id=?", (json.dumps({"boxId": box["id"], "policy": {"version": "ag-retention-v1"}, "auditEvents": [{"eventDigest": "sha256:tampered"}]}), export["id"]))
+        self.app.db.connection.commit()
+        status, _, report = self.call("POST", "/api/v1/retention/restore", {"boxId": box["id"], "exportId": export["id"], "namespace": "restore-integrity"}, key="restore-integrity-run")
+        self.assertEqual(status, 200)
+        self.assertFalse(report["verified"])
+        self.assertFalse(report["checks"]["manifest"])
 
 
 if __name__ == "__main__":

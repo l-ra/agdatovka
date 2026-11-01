@@ -9,7 +9,7 @@ Access dates are UTC. Dynamic government pages and WSDL packages must be
 snapshotted with a checksum when they become test inputs. Never put production
 credentials, personal data, or real message content in a snapshot.
 
-The URLs below were checked on 2026-10-30 UTC. “Current” always means the
+The URLs below were checked on 2026-11-01 UTC. “Current” always means the
 publisher's version at the recorded access date; it is not a promise that a
 dynamic page or technical annex remains unchanged.
 
@@ -33,6 +33,8 @@ dynamic page or technical annex remains unchanged.
 | S-14 | [GDPR, Regulation (EU) 2016/679](https://eur-lex.europa.eu/eli/reg/2016/679/oj/eng) | Personal-data processing baseline | Requires purpose limitation, minimization, security, retention governance, and demonstrable controls; the exact controller/processor roles remain a legal decision. | Legal source recorded; DPIA/legal review pending |
 | S-15 | [eIDAS, Regulation (EU) No 910/2014](https://eur-lex.europa.eu/eli/reg/2014/910/oj/eng) | Electronic identification and trust services | Relevant when choosing qualified signatures, seals, timestamps, or trust-service integrations. No qualified-service claim is made by this project. | Legal source recorded; applicability review pending |
 | S-16 | [CZ.NIC Datovka source project](https://gitlab.nic.cz/datovka/datovka) | Fork provenance and source inspection | The public GitLab project is the upstream desktop project referenced by the Datovka website. | URL recorded; license and commit pin required before fork |
+| S-17 | [Act 99/2019 Sb.](https://e-sbirka.gov.cz/sb/2019/99) | Czech accessibility legal source | Accessibility applicability and exceptions must be assessed for the eventual operator and public interface. | URL recorded; applicability review pending |
+| S-18 | [AGDA-26 legal traceability](AGDA-26-LEGAL-TRACEABILITY.md) | Repository obligation/interpretation register | Separates official law, official ISDS behavior, implementation choices, confidence, and unresolved questions. | Implemented for synthetic slice; legal review pending |
 
 ## Evidence rules
 

@@ -28,6 +28,18 @@ from .security import TrustError, TrustProfile, modern_subject, secret_handle, v
 
 
 API_VERSION = "v1"
+RETENTION_POLICY_VERSION = "ag-retention-v1"
+RETENTION_POLICY = {
+    "version": RETENTION_POLICY_VERSION,
+    "kind": "reference_profile",
+    "source": "S-05",
+    "classes": {
+        "ordinary": {"referenceDays": 90, "clock": "after_login_delivery"},
+        "system": {"referenceDays": 100, "clock": "after_delivery"},
+    },
+    "legalHold": "deletion_blocked_until_release",
+    "disclaimer": "Reference interoperability profile; not universal legal advice or a tenant retention schedule.",
+}
 MAX_PAGE_SIZE = 100
 MAX_UPLOAD_BYTES = 16 * 1024 * 1024
 ID_RE = re.compile(r"^[a-z][a-z0-9_-]{1,99}$")
@@ -220,6 +232,12 @@ class Database:
               id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, resource_type TEXT NOT NULL,
               resource_id TEXT NOT NULL, policy_version TEXT NOT NULL,
               request_id TEXT NOT NULL, tombstone_digest TEXT NOT NULL, created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS retention_deletion_jobs (
+              id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, resource_type TEXT NOT NULL,
+              resource_id TEXT NOT NULL, data_class TEXT NOT NULL, policy_version TEXT NOT NULL, status TEXT NOT NULL,
+              tombstone_id TEXT, requested_at TEXT NOT NULL, completed_at TEXT,
+              request_id TEXT NOT NULL, evidence_digest TEXT
             );
             CREATE TABLE IF NOT EXISTS trust_profiles (
               id TEXT PRIMARY KEY, name TEXT NOT NULL, version TEXT NOT NULL,
@@ -1045,7 +1063,11 @@ class ManagementApp:
             receipts = [self._receipt_json(row) for row in self.db.all("SELECT * FROM receipts WHERE message_id IN (SELECT id FROM messages WHERE box_id=?) ORDER BY validated_at, id", (box_id,))]
             operations = [self._operation_json(row) for row in self.db.all("SELECT * FROM operations WHERE box_id=? ORDER BY created_at, id", (box_id,))]
             events = [self._audit_json(row) for row in self.db.all("SELECT * FROM audit_events WHERE tenant_id=? ORDER BY occurred_at, id", (box_id,))]
-            result = {"boxId": box_id, "format": format_name, "messages": messages, "attachments": attachments, "receipts": receipts, "operations": operations, "auditEvents": events, "policyVersion": "ag-v1"}
+            message_events = [self._message_event_json(row) for row in self.db.all("SELECT e.* FROM message_events e JOIN messages m ON m.id=e.message_id WHERE m.box_id=? ORDER BY e.occurred_at, e.id", (box_id,))]
+            holds = [{"id": row["id"], "boxId": row["tenant_id"], "resourceType": row["resource_type"], "resourceId": row["resource_id"], "reason": row["reason"], "active": bool(row["active"]), "createdAt": row["created_at"], "releasedAt": row["released_at"]} for row in self.db.all("SELECT * FROM legal_holds WHERE tenant_id=? ORDER BY created_at, id", (box_id,))]
+            tombstones = [dict(row) for row in self.db.all("SELECT * FROM retention_tombstones WHERE tenant_id=? ORDER BY created_at, id", (box_id,))]
+            trust_profiles = [{**dict(row), "profileDigest": digest(json.loads(row["profile_json"]))} for row in self.db.all("SELECT * FROM trust_profiles ORDER BY name, version, id")]
+            result = {"boxId": box_id, "format": format_name, "policy": RETENTION_POLICY, "messages": messages, "attachments": attachments, "receipts": receipts, "operations": operations, "messageEvents": message_events, "auditEvents": events, "legalHolds": holds, "tombstones": tombstones, "trustProfiles": trust_profiles}
             manifest_digest = digest(result)
             self.db.connection.execute("INSERT INTO exports VALUES(?,?,?,?,?,?,?,?)", (export_id, box_id, "completed", format_name, manifest_digest, canonical_json(result), at, at))
             self._audit(actor, "export.created", "allowed", "export", export_id, request_id, correlation_id, None, box_id, manifest_digest)
@@ -1091,16 +1113,21 @@ class ManagementApp:
             self._require(actor, "retention:manage", box_id)
             resource_type = self._required(body, "resourceType")
             resource_id = self._required(body, "resourceId")
+            data_class = body.get("dataClass", "ordinary")
+            if data_class not in RETENTION_POLICY["classes"]:
+                raise Problem(422, "invalid_field", "Invalid field", "dataClass must be ordinary or system.")
             held = self.db.one("SELECT id FROM legal_holds WHERE tenant_id=? AND resource_type=? AND resource_id=? AND active=1", (box_id, resource_type, resource_id))
             if held:
                 raise Problem(409, "legal_hold_active", "Legal hold active", "Deletion is blocked by an active legal hold.")
             at = now_iso()
             tombstone_id = new_id("tomb")
-            tombstone_digest = digest({"tenantId": box_id, "resourceType": resource_type, "resourceId": resource_id, "policyVersion": "ag-v1", "requestId": request_id})
-            self.db.connection.execute("INSERT INTO retention_tombstones VALUES(?,?,?,?,?,?,?,?)", (tombstone_id, box_id, resource_type, resource_id, "ag-v1", request_id, tombstone_digest, at))
+            tombstone_digest = digest({"tenantId": box_id, "resourceType": resource_type, "resourceId": resource_id, "dataClass": data_class, "policyVersion": RETENTION_POLICY_VERSION, "requestId": request_id})
+            job_id = new_id("deljob")
+            self.db.connection.execute("INSERT INTO retention_deletion_jobs VALUES(?,?,?,?,?,?,?,?,?,?,?,?)", (job_id, box_id, resource_type, resource_id, data_class, RETENTION_POLICY_VERSION, "completed", tombstone_id, at, at, request_id, tombstone_digest))
+            self.db.connection.execute("INSERT INTO retention_tombstones VALUES(?,?,?,?,?,?,?,?)", (tombstone_id, box_id, resource_type, resource_id, RETENTION_POLICY_VERSION, request_id, tombstone_digest, at))
             self._audit(actor, "retention.deleted", "allowed", resource_type, resource_id, request_id, correlation_id, "tombstone", box_id, tombstone_digest)
             self.db.connection.commit()
-            return 202, {"id": tombstone_id, "boxId": box_id, "resourceType": resource_type, "resourceId": resource_id, "status": "tombstoned", "policyVersion": "ag-v1", "tombstoneDigest": tombstone_digest, "createdAt": at, "requestId": request_id}
+            return 202, {"id": tombstone_id, "jobId": job_id, "boxId": box_id, "resourceType": resource_type, "resourceId": resource_id, "dataClass": data_class, "status": "tombstoned", "jobStatus": "completed", "policyVersion": RETENTION_POLICY_VERSION, "tombstoneDigest": tombstone_digest, "createdAt": at, "requestId": request_id}
         if rest == ["restore"] and method == "POST":
             box_id = self._required(body, "boxId")
             export_id = self._required(body, "exportId")
@@ -1113,13 +1140,18 @@ class ManagementApp:
             if not export:
                 raise Problem(404, "not_found", "Not found", "The requested export does not exist.")
             result = json.loads(export["result_json"])
-            manifest_ok = digest(result) == export["manifest_digest"]
-            audit_rows = self.db.all("SELECT * FROM audit_events WHERE tenant_id=? ORDER BY occurred_at, id", (box_id,))
-            audit_ok = self._verify_audit_chain(audit_rows)
+            manifest_ok = digest(result) == export["manifest_digest"] and result.get("policy", {}).get("version") == RETENTION_POLICY_VERSION
+            audit_rows = [row for row in result.get("auditEvents", [])]
+            audit_ok = self._verify_audit_chain_json(audit_rows)
+            message_event_ok = self._verify_message_event_chains(result.get("messageEvents", []))
             attachment_ok = all(item["contentDigest"] == digest(self.db.one("SELECT content_bytes FROM attachments WHERE id=?", (item["id"],))["content_bytes"]) for item in result.get("attachments", []) if self.db.one("SELECT content_bytes FROM attachments WHERE id=?", (item["id"],)))
-            checks = {"manifest": manifest_ok, "auditHashChain": audit_ok, "attachmentDigests": attachment_ok, "authorizationScope": True, "trustProfiles": True, "pendingOperationsReconciled": True, "blindSendReplay": False}
+            scope_ok = result.get("boxId") == box_id and all(item.get("boxId", box_id) == box_id for item in result.get("messages", []) + result.get("operations", []))
+            trust_ok = all(profile.get("profile_json") is not None and profile.get("profileDigest") == digest(json.loads(profile["profile_json"])) for profile in result.get("trustProfiles", []))
+            pending = [op["id"] for op in result.get("operations", []) if op["status"] in {"queued", "submitting", "retry_wait"}]
+            pending_ok = all(op["id"] and op.get("request") is not None for op in result.get("operations", []) if op["id"] in pending)
+            checks = {"manifest": manifest_ok, "auditHashChain": audit_ok, "messageEventHashLinks": message_event_ok, "attachmentDigests": attachment_ok, "authorizationScope": scope_ok, "trustProfiles": trust_ok, "pendingOperationsReconciled": pending_ok, "blindSendReplay": False}
             verified = all(value for key, value in checks.items() if key != "blindSendReplay") and not checks["blindSendReplay"]
-            return 200, {"namespace": namespace, "exportId": export_id, "verified": verified, "checks": checks, "pendingOperations": [op["id"] for op in result.get("operations", []) if op["status"] in {"queued", "submitting", "retry_wait"}], "requestId": request_id}
+            return 200, {"namespace": namespace, "exportId": export_id, "verified": verified, "checks": checks, "policyVersion": result.get("policy", {}).get("version"), "pendingOperations": pending, "requestId": request_id}
         raise Problem(405, "method_not_allowed", "Method not allowed", "This method is not supported for retention resources.")
 
     def _audit_list(self, query: Mapping[str, list[str]], actor: Actor, request_id: str) -> tuple[int, dict[str, Any]]:
@@ -1237,6 +1269,31 @@ class ManagementApp:
             if digest(event) != row["event_digest"]:
                 return False
             previous = row["event_digest"]
+        return True
+
+    @staticmethod
+    def _verify_audit_chain_json(rows: list[dict[str, Any]]) -> bool:
+        previous = None
+        for row in rows:
+            if row.get("previousDigest") != previous:
+                return False
+            event = {"id": row.get("id"), "tenantId": row.get("tenantId"), "actor": row.get("actor"), "action": row.get("action"), "outcome": row.get("outcome"), "resourceType": row.get("resourceType"), "resourceId": row.get("resourceId"), "policyVersion": row.get("policyVersion"), "requestId": row.get("requestId"), "correlationId": row.get("correlationId"), "occurredAt": row.get("occurredAt"), "contentDigest": row.get("contentDigest"), "reason": row.get("reason"), "previousDigest": row.get("previousDigest")}
+            if digest(event) != row.get("eventDigest"):
+                return False
+            previous = row.get("eventDigest")
+        return True
+
+    @staticmethod
+    def _verify_message_event_chains(rows: list[dict[str, Any]]) -> bool:
+        previous_by_message: dict[str, str | None] = {}
+        for row in rows:
+            message_id = row.get("messageId")
+            if row.get("previousDigest") != previous_by_message.get(message_id):
+                return False
+            event = {"id": row.get("id"), "messageId": message_id, "eventType": row.get("eventType"), "sourceCode": row.get("sourceCode"), "sourceProfile": row.get("sourceProfile"), "reason": row.get("reason"), "occurredAt": row.get("occurredAt"), "recordedAt": row.get("recordedAt"), "actor": row.get("actor"), "attempt": row.get("attempt"), "previousDigest": row.get("previousDigest")}
+            if digest(event) != row.get("eventDigest"):
+                return False
+            previous_by_message[message_id] = row.get("eventDigest")
         return True
 
     @staticmethod

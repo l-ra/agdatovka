@@ -43,6 +43,12 @@ contain tokens, private keys, personal data, or full message bodies.
 7. Enable traffic only after the restore report is signed/approved under the
    deployment policy. Record the exact restore and verification commits.
 
+The synthetic `/api/v1/retention/restore` report must record the export and
+policy version, namespace, manifest result, audit and message-event hash-link
+results, object/attachment checksums, authorization scope, trust-profile
+digests, pending-operation reconciliation, and `blindSendReplay: false`. A
+`verified` result is local evidence for the supplied synthetic export only.
+
 ## Failure handling
 
 - If a mirror push, checksum, test, or merge verification fails, mark the

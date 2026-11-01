@@ -1,0 +1,13 @@
+{
+  "fixtureVersion": 1,
+  "profile": "ag-retention-v1-2026-11-01",
+  "syntheticOnly": true,
+  "policyVersion": "ag-retention-v1",
+  "classes": {
+    "ordinary": {"referenceDays": 90, "clock": "after_login_delivery"},
+    "system": {"referenceDays": 100, "clock": "after_delivery"}
+  },
+  "legalHold": {"active": true, "deletion": "blocked"},
+  "restore": {"namespacePattern": "^[a-z][a-z0-9_-]{1,63}$", "productionPrefixRejected": true},
+  "sourceProfile": "reference interoperability profile, not universal legal retention law"
+}
