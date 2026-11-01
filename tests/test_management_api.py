@@ -195,6 +195,21 @@ class ManagementApiTest(unittest.TestCase):
         status, _, receipt = self.call("GET", f"/api/v1/messages/{message['id']}/receipts/{receipt_id}")
         self.assertEqual((status, receipt["status"], receipt["immutable"], receipt["sourceCode"]), (200, "delivered", True, "EV3"))
         self.assertTrue(receipt["rawDigest"].startswith("sha256:"))
+        self.assertEqual(receipt["validation"]["status"], "passed")
+        self.assertTrue(receipt["rawEvidenceBase64"])
+        self.assertEqual(receipt["messageId"], message["id"])
+        self.assertEqual(receipt["operationId"], operation["operationId"])
+        self.assertTrue(receipt["eventId"] and receipt["auditEventId"])
+        self.assertEqual(self.app.db.one("SELECT id FROM message_events WHERE id=? AND message_id=?", (receipt["eventId"], message["id"]))["id"], receipt["eventId"])
+        self.assertEqual(self.app.db.one("SELECT id FROM audit_events WHERE id=? AND resource_id=?", (receipt["auditEventId"], receipt_id))["id"], receipt["auditEventId"])
+
+        # The export embeds the exact receipt record, preserving traceability
+        # without rewriting the immutable receipt row.
+        status, _, export = self.call("POST", "/api/v1/exports", {"boxId": box["id"], "format": "jsonl"}, key="worker-export")
+        self.assertEqual(status, 202)
+        status, _, fetched_export = self.call("GET", f"/api/v1/exports/{export['id']}")
+        self.assertEqual(status, 200)
+        self.assertEqual(fetched_export["result"]["receipts"][0]["id"], receipt_id)
 
     def test_worker_reconciles_post_submit_and_post_receipt_crashes(self):
         box = self.create_box("Crash recovery box")

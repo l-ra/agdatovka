@@ -124,6 +124,12 @@ stable per-attempt reconciliation key, projects `submitting` and `delivered`
 lifecycle events, and persists an immutable receipt with raw evidence digest.
 It never contacts a public or production endpoint. A `delivered` projection is
 therefore synthetic worker evidence, not a legal or production delivery claim.
+The receipt response preserves `rawXml` and additive `rawEvidenceBase64` fields,
+rechecks the stored bytes against `rawDigest`, and returns `validation`,
+`eventId`, and `auditEventId` trace links. A digest mismatch or mutable marker
+returns `409 receipt_integrity_failure`; it never serves unverified evidence.
+Exports embed the same receipt record and digest, so the receipt, operation,
+lifecycle event, audit record, and export manifest remain mutually traceable.
 
 ### Retention and restore controls
 

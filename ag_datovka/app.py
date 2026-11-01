@@ -206,7 +206,8 @@ class Database:
               id TEXT PRIMARY KEY, message_id TEXT NOT NULL REFERENCES messages(id),
               operation_id TEXT NOT NULL REFERENCES operations(id), status TEXT NOT NULL,
               source_code TEXT NOT NULL, source_profile TEXT NOT NULL,
-              raw_digest TEXT NOT NULL, raw_xml TEXT NOT NULL,
+              raw_digest TEXT NOT NULL, raw_xml TEXT NOT NULL, raw_bytes BLOB NOT NULL DEFAULT X'',
+              validation_json TEXT NOT NULL DEFAULT '{}', event_id TEXT, audit_event_id TEXT,
               validated_at TEXT NOT NULL, immutable INTEGER NOT NULL DEFAULT 1,
               UNIQUE(message_id, operation_id)
             );
@@ -994,9 +995,10 @@ class ManagementApp:
             if not existing_receipt:
                 self.db.connection.execute("UPDATE operations SET status='delivered', retryable=0, updated_at=? WHERE id=?", (at, item.operation_id))
                 self.db.connection.execute("UPDATE messages SET status='delivered', updated_at=? WHERE id=?", (at, operation["message_id"]))
-                self._record_message_event(operation["message_id"], "delivered", "EV3", "ag-synthetic-v1", None, "synthetic-worker", attempt)
-                self.db.connection.execute("INSERT INTO receipts(id,message_id,operation_id,status,source_code,source_profile,raw_digest,raw_xml,validated_at,immutable) VALUES(?,?,?,?,?,?,?,?,?,1)", (receipt_id, operation["message_id"], item.operation_id, "delivered", "EV3", "ag-synthetic-v1", receipt_digest, raw_xml.decode("utf-8"), at))
-                self._audit(Actor("synthetic-worker", operation["box_id"]), "receipt.validated", "allowed", "receipt", receipt_id, new_id("req"), new_id("corr"), None, operation["box_id"], receipt_digest)
+                event_id = self._record_message_event(operation["message_id"], "delivered", "EV3", "ag-synthetic-v1", None, "synthetic-worker", attempt)
+                validation = {"validator": "ag-isds-adapter-v1", "status": "passed", "signature": "not_present", "chain": "not_present", "error": None}
+                audit_event_id = self._audit(Actor("synthetic-worker", operation["box_id"]), "receipt.validated", "allowed", "receipt", receipt_id, new_id("req"), new_id("corr"), None, operation["box_id"], receipt_digest)
+                self.db.connection.execute("INSERT INTO receipts(id,message_id,operation_id,status,source_code,source_profile,raw_digest,raw_xml,raw_bytes,validation_json,event_id,audit_event_id,validated_at,immutable) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,1)", (receipt_id, operation["message_id"], item.operation_id, "delivered", "EV3", "ag-synthetic-v1", receipt_digest, raw_xml.decode("utf-8"), raw_xml, canonical_json(validation), event_id, audit_event_id, at))
                 self.db.connection.commit()
             if crash_at == "post-receipt":
                 raise RuntimeError("synthetic worker crash after receipt persistence")
@@ -1206,7 +1208,7 @@ class ManagementApp:
             raise Problem(400, "invalid_limit", "Invalid limit", "limit must be an integer between 1 and 100.")
         return limit
 
-    def _audit(self, actor: Actor, action: str, outcome: str, resource_type: str | None, resource_id: str | None, request_id: str, correlation_id: str, reason: str | None, tenant_id: str | None = None, content_digest: str | None = None) -> None:
+    def _audit(self, actor: Actor, action: str, outcome: str, resource_type: str | None, resource_id: str | None, request_id: str, correlation_id: str, reason: str | None, tenant_id: str | None = None, content_digest: str | None = None) -> str:
         tenant = tenant_id or actor.box_id or "platform"
         previous = self.db.one("SELECT event_digest FROM audit_events WHERE tenant_id=? ORDER BY occurred_at DESC, id DESC LIMIT 1", (tenant,))
         at = now_iso()
@@ -1214,14 +1216,16 @@ class ManagementApp:
         event = {"id": event_id, "tenantId": tenant, "actor": actor.subject, "action": action, "outcome": outcome, "resourceType": resource_type, "resourceId": resource_id, "policyVersion": "ag-v1", "requestId": request_id, "correlationId": correlation_id, "occurredAt": at, "contentDigest": content_digest, "reason": reason, "previousDigest": previous["event_digest"] if previous else None}
         event_digest = digest(event)
         self.db.connection.execute("INSERT INTO audit_events VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", (event_id, tenant, actor.subject, action, outcome, resource_type, resource_id, "ag-v1", request_id, correlation_id, at, content_digest, reason, event["previousDigest"], event_digest))
+        return event_id
 
-    def _record_message_event(self, message_id: str, event_type: str, source_code: str | None, source_profile: str | None, reason: str | None, actor: str, attempt: int) -> None:
+    def _record_message_event(self, message_id: str, event_type: str, source_code: str | None, source_profile: str | None, reason: str | None, actor: str, attempt: int) -> str:
         previous = self.db.one("SELECT event_digest FROM message_events WHERE message_id=? ORDER BY occurred_at DESC, id DESC LIMIT 1", (message_id,))
         at = now_iso()
         event_id = new_id("mev")
         event = {"id": event_id, "messageId": message_id, "eventType": event_type, "sourceCode": source_code, "sourceProfile": source_profile, "reason": reason, "occurredAt": at, "recordedAt": at, "actor": actor, "attempt": attempt, "previousDigest": previous["event_digest"] if previous else None}
         event_digest = digest(event)
         self.db.connection.execute("INSERT INTO message_events VALUES(?,?,?,?,?,?,?,?,?,?,?,?)", (event_id, message_id, event_type, source_code, source_profile, reason, at, at, actor, attempt, event["previousDigest"], event_digest))
+        return event_id
 
     @staticmethod
     def _verify_audit_chain(rows: list[sqlite3.Row]) -> bool:
@@ -1267,9 +1271,12 @@ class ManagementApp:
     def _audit_json(row: sqlite3.Row) -> dict[str, Any]:
         return {"id": row["id"], "tenantId": row["tenant_id"], "actor": row["actor"], "action": row["action"], "outcome": row["outcome"], "resourceType": row["resource_type"], "resourceId": row["resource_id"], "policyVersion": row["policy_version"], "requestId": row["request_id"], "correlationId": row["correlation_id"], "occurredAt": row["occurred_at"], "contentDigest": row["content_digest"], "reason": row["reason"], "previousDigest": row["previous_digest"], "eventDigest": row["event_digest"]}
 
-    @staticmethod
-    def _receipt_json(row: sqlite3.Row) -> dict[str, Any]:
-        return {"id": row["id"], "messageId": row["message_id"], "operationId": row["operation_id"], "status": row["status"], "sourceCode": row["source_code"], "sourceProfile": row["source_profile"], "rawDigest": row["raw_digest"], "rawXml": row["raw_xml"], "validatedAt": row["validated_at"], "immutable": bool(row["immutable"])}
+    def _receipt_json(self, row: sqlite3.Row) -> dict[str, Any]:
+        raw = bytes(row["raw_bytes"] or row["raw_xml"].encode("utf-8"))
+        if digest(raw) != row["raw_digest"] or not row["immutable"]:
+            raise Problem(409, "receipt_integrity_failure", "Receipt integrity failure", "Receipt evidence failed its immutable digest check.")
+        validation = json.loads(row["validation_json"] or "{}")
+        return {"id": row["id"], "messageId": row["message_id"], "operationId": row["operation_id"], "status": row["status"], "sourceCode": row["source_code"], "sourceProfile": row["source_profile"], "rawDigest": row["raw_digest"], "rawXml": row["raw_xml"], "rawEvidenceBase64": base64.b64encode(raw).decode("ascii"), "validation": validation, "eventId": row["event_id"], "auditEventId": row["audit_event_id"], "validatedAt": row["validated_at"], "immutable": bool(row["immutable"])}
 
 
 def create_app(db_path: str = ":memory:") -> ManagementApp:
