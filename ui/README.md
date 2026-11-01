@@ -6,5 +6,8 @@ only the versioned `/api/v1` contract and is intended for the local
 API with `python3 -m ag_datovka.server --host 127.0.0.1 --port 8080`.
 
 The UI never contains production hosts, credentials, raw private keys, or a
-legacy AGDatovka runtime dependency. It does not claim delivery until a local
-synthetic worker projects the queued operation and receipt.
+legacy AGDatovka runtime dependency. It supports box, identity, membership,
+message/attachment, operation/lifecycle, search, export, and audit views. It
+does not claim delivery until a local synthetic worker projects the queued
+operation and receipt. See `evidence/AGDA-28/README.md` for reproduction and
+the manual scenario record.

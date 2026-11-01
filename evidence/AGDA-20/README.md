@@ -14,7 +14,7 @@ release verdict.
 | Async send | `ManagementApp.run_worker`; management worker test | Synthetic outbox/lease/lifecycle projection |
 | Receipts | `receipts` table and receipt API route | Immutable synthetic raw evidence |
 | Retention/restore | `/retention/*` routes, `fixtures/retention/policy.json`, `docs/requirements/AGDA-26-LEGAL-TRACEABILITY.md`, and management regression tests | Synthetic versioned policy, deletion job/tombstone/digest, manifest export, isolated restore report, and tamper fail-closed checks |
-| Management UI | `ui/index.html`, `ui/app.js`, `ui/styles.css` | Static accessible vertical slice; audit still pending |
+| Management UI | `ui/index.html`, `ui/app.js`, `ui/styles.css`, `tests/test_ui_accessibility.py`, `evidence/AGDA-28/README.md` | Synthetic accessible vertical slice with source checks and manual scenario; no production UX claim |
 | Performance | `docs/testing/PERFORMANCE-SCENARIOS.md` | Defined, not run; human approval required |
 | Fork workflow | `fork/` and `docs/testing/CZNIC-DATOVKA.md` | Offline foundation; local endpoint run pending |
 | Independent review/release | AGDA-31/AGDA-32 | Pending specialist evidence; no completion claim |

@@ -55,8 +55,11 @@ what remains pending.
   legal holds, release, tombstone deletion requests, and isolated synthetic
   restore verification with an explicit no-blind-send-replay check.
 - `ui/` contains a dependency-free keyboard-accessible management UI for
-  boxes, message/attachment submission, operations, search, export/audit
-  inspection, and redacted error display. It uses only `/api/v1`.
+  boxes, identities/memberships, message/attachment submission,
+  operations/lifecycle, search, export/audit inspection, and redacted error
+  display. It uses only `/api/v1`. Source checks and a synthetic manual
+  scenario are recorded in `evidence/AGDA-28/README.md` and
+  `tests/test_ui_accessibility.py`.
 
 ## Verification
 
@@ -87,8 +90,9 @@ covers the old Phase 2 boundaries plus:
 - The Datovka fork has offline fixtures and an endpoint profile, but this
   candidate does not claim a completed desktop build against a live local
   endpoint until P3-09 records that workflow.
-- The UI is a static vertical slice; no accessibility audit beyond source and
-  deterministic fixture coverage is claimed until P3-08 completes.
+- The UI remains a static vertical slice. AGDA-28 records source-level
+  accessibility checks and a manual scenario, but no accessibility
+  conformance certification or production UX claim.
 - Independent security re-review, local no-fast-forward integration, exact
   mirror verification, and sanitized public milestone publication remain P3-11
   and P3-12 gates. No mirror URL or SHA is invented here.
