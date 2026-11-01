@@ -97,3 +97,21 @@ decision is still required.
 - **ADR-P03:** Qualified trust-service/timestamp provider and evidence format.
 - **ADR-P04:** Deployment platform, database/object-store technology, and queue
   implementation; these are intentionally not fixed by this foundation.
+
+## ADR-010 — Phase 2 evidence reconciliation and synthetic contract freeze
+
+- **Status:** accepted
+- **Decision:** Freeze Phase 2 as synthetic/test-only evidence. Use the exact
+  local source and integrated-main SHAs in the AGDA-21 reconciliation record;
+  preserve the AGDA-16 failed mirror attempt as historical evidence; and do
+  not treat readiness manifests, offline fixtures, or the 33-test report as
+  production, compatibility, performance, security, legal, or compliance
+  proof.
+- **Conflicts resolved:** The AGDA-16 `/tmp/agda-10-integration` narrative is
+  historical rather than the current checkout; the provider refs are
+  divergent and do not establish full mirror parity; AGDA-14's 29-test text
+  is superseded by the current 33-test run without changing its adverse
+  verdict; and AGDA-13 readiness remains distinct from deferred performance
+  execution.
+- **Evidence:** `evidence/AGDA-21/README.md`, `evidence/AGDA-14/README.md`,
+  `evidence/AGDA-13/README.md`, and `main:evidence/AGDA-16/mirror-verification.md`.
