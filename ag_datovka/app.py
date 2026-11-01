@@ -12,15 +12,18 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import math
 import re
 import secrets
 import sqlite3
+import threading
 import uuid
 from datetime import datetime, timezone
 from http import HTTPStatus
 from typing import Any, Iterable, Mapping
 from urllib.parse import parse_qs, urlencode, urlsplit
 
+from .pipeline import DurablePipeline
 from .security import TrustError, TrustProfile, modern_subject, secret_handle, validate_endpoint
 
 
@@ -164,7 +167,7 @@ class Database:
             CREATE TABLE IF NOT EXISTS attachments (
               id TEXT PRIMARY KEY, message_id TEXT NOT NULL REFERENCES messages(id),
               filename TEXT NOT NULL, media_type TEXT NOT NULL, byte_length INTEGER NOT NULL,
-              content_digest TEXT NOT NULL, created_at TEXT NOT NULL
+              content_digest TEXT NOT NULL, content_bytes BLOB NOT NULL DEFAULT X'', created_at TEXT NOT NULL
             );
             CREATE TABLE IF NOT EXISTS message_events (
               id TEXT PRIMARY KEY, message_id TEXT NOT NULL REFERENCES messages(id),
@@ -195,7 +198,27 @@ class Database:
               tenant_id TEXT NOT NULL, actor TEXT NOT NULL, key TEXT NOT NULL,
               method TEXT NOT NULL, path TEXT NOT NULL, request_digest TEXT NOT NULL,
               response_status INTEGER NOT NULL, response_json TEXT NOT NULL,
+              state TEXT NOT NULL DEFAULT 'claimed', attempts INTEGER NOT NULL DEFAULT 1,
+              claimed_at TEXT NOT NULL, completed_at TEXT,
               created_at TEXT NOT NULL, PRIMARY KEY(tenant_id, actor, key)
+            );
+            CREATE TABLE IF NOT EXISTS receipts (
+              id TEXT PRIMARY KEY, message_id TEXT NOT NULL REFERENCES messages(id),
+              operation_id TEXT NOT NULL REFERENCES operations(id), status TEXT NOT NULL,
+              source_code TEXT NOT NULL, source_profile TEXT NOT NULL,
+              raw_digest TEXT NOT NULL, raw_xml TEXT NOT NULL,
+              validated_at TEXT NOT NULL, immutable INTEGER NOT NULL DEFAULT 1,
+              UNIQUE(message_id, operation_id)
+            );
+            CREATE TABLE IF NOT EXISTS legal_holds (
+              id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, resource_type TEXT NOT NULL,
+              resource_id TEXT NOT NULL, reason TEXT NOT NULL, active INTEGER NOT NULL,
+              created_at TEXT NOT NULL, released_at TEXT
+            );
+            CREATE TABLE IF NOT EXISTS retention_tombstones (
+              id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, resource_type TEXT NOT NULL,
+              resource_id TEXT NOT NULL, policy_version TEXT NOT NULL,
+              request_id TEXT NOT NULL, tombstone_digest TEXT NOT NULL, created_at TEXT NOT NULL
             );
             CREATE TABLE IF NOT EXISTS trust_profiles (
               id TEXT PRIMARY KEY, name TEXT NOT NULL, version TEXT NOT NULL,
@@ -221,6 +244,21 @@ class Database:
             CREATE INDEX IF NOT EXISTS idx_operations_box_created ON operations(box_id, created_at DESC, id DESC);
             """
         )
+        # Keep the synthetic fixture usable when a local Phase 2 SQLite file
+        # is reused.  This is a narrow additive schema change, not migration
+        # from the former AGDatovka implementation.
+        attachment_columns = {row["name"] for row in self.connection.execute("PRAGMA table_info(attachments)").fetchall()}
+        if "content_bytes" not in attachment_columns:
+            self.connection.execute("ALTER TABLE attachments ADD COLUMN content_bytes BLOB NOT NULL DEFAULT ''")
+        idempotency_columns = {row["name"] for row in self.connection.execute("PRAGMA table_info(idempotency_keys)").fetchall()}
+        if "state" not in idempotency_columns:
+            self.connection.execute("ALTER TABLE idempotency_keys ADD COLUMN state TEXT NOT NULL DEFAULT 'completed'")
+        if "attempts" not in idempotency_columns:
+            self.connection.execute("ALTER TABLE idempotency_keys ADD COLUMN attempts INTEGER NOT NULL DEFAULT 1")
+        if "claimed_at" not in idempotency_columns:
+            self.connection.execute("ALTER TABLE idempotency_keys ADD COLUMN claimed_at TEXT NOT NULL DEFAULT ''")
+        if "completed_at" not in idempotency_columns:
+            self.connection.execute("ALTER TABLE idempotency_keys ADD COLUMN completed_at TEXT")
         self._seed_policy()
         self.connection.commit()
 
@@ -235,6 +273,7 @@ class Database:
             ("receipt:read", "Read receipt evidence"), ("operation:cancel", "Cancel operations"),
             ("operation:read", "Read operations"), ("export:create", "Create exports"),
             ("export:read", "Read exports"), ("audit:read", "Read audit events"),
+            ("retention:manage", "Manage retention and legal holds"), ("retention:read", "Read retention evidence"),
         ]
         for code, description in permission_codes:
             self.connection.execute(
@@ -244,7 +283,7 @@ class Database:
         role_permissions = {
             "box-owner": [code for code, _ in permission_codes if code not in {"box:create"}],
             "box-operator": ["box:read", "message:create", "message:send", "message:read", "receipt:read", "operation:read", "export:read"],
-            "auditor": ["box:read", "message:read", "receipt:read", "operation:read", "export:read", "audit:read"],
+            "auditor": ["box:read", "message:read", "receipt:read", "operation:read", "export:read", "audit:read", "retention:read"],
             "trust-admin": ["box:read", "auth:manage"],
             "platform-admin": [code for code, _ in permission_codes],
         }
@@ -278,6 +317,11 @@ class ManagementApp:
 
     def __init__(self, db_path: str = ":memory:") -> None:
         self.db = Database(db_path)
+        self.pipeline = DurablePipeline(self.db.connection, max_in_flight=1000, max_attempts=5)
+        # The SQLite fixture is intentionally single-process.  Serializing the
+        # request critical section makes the idempotency claim atomic for the
+        # supported local deployment and gives deterministic concurrency tests.
+        self._request_lock = threading.RLock()
 
     def close(self) -> None:
         self.db.close()
@@ -289,6 +333,8 @@ class ManagementApp:
         headers = {key[5:].replace("_", "-"): value for key, value in environ.items() if key.startswith("HTTP_")}
         if "CONTENT_TYPE" in environ:
             headers["CONTENT-TYPE"] = environ["CONTENT_TYPE"]
+        if "CONTENT_LENGTH" in environ:
+            headers["CONTENT-LENGTH"] = environ["CONTENT_LENGTH"]
         try:
             length = int(environ.get("CONTENT_LENGTH") or 0)
         except ValueError:
@@ -311,6 +357,16 @@ class ManagementApp:
         headers: Mapping[str, str] | None = None,
         body: bytes | str | Mapping[str, Any] | None = None,
     ) -> tuple[int, dict[str, str], bytes]:
+        with self._request_lock:
+            return self._handle_request_unlocked(method, path, headers, body)
+
+    def _handle_request_unlocked(
+        self,
+        method: str,
+        path: str,
+        headers: Mapping[str, str] | None = None,
+        body: bytes | str | Mapping[str, Any] | None = None,
+    ) -> tuple[int, dict[str, str], bytes]:
         headers = {str(k).lower(): str(v) for k, v in (headers or {}).items()}
         split = urlsplit(path)
         request_id = headers.get("x-request-id") or headers.get("correlation-id") or new_id("req")
@@ -327,26 +383,66 @@ class ManagementApp:
         if mutating and not idem_key:
             return self._problem(400, "idempotency_key_required", "Idempotency key required", "Mutating requests require Idempotency-Key.", request_id)
         tenant_for_idem = actor.box_id or "platform"
+        request_digest = digest({"method": method.upper(), "path": split.path, "body": body_for_hash})
         if mutating and idem_key:
             replay = self.db.one(
                 "SELECT * FROM idempotency_keys WHERE tenant_id=? AND actor=? AND key=?",
                 (tenant_for_idem, actor.subject, idem_key),
             )
-            request_digest = digest({"method": method.upper(), "path": split.path, "body": body_for_hash})
             if replay:
                 if replay["request_digest"] != request_digest:
                     return self._problem(409, "idempotency_conflict", "Idempotency conflict", "The idempotency key was already used with a different request.", request_id)
-                response_headers = {"content-type": "application/json", "x-request-id": request_id, "idempotent-replay": "true"}
-                return replay["response_status"], response_headers, replay["response_json"].encode("utf-8")
+                if replay["state"] == "completed":
+                    response_headers = {"content-type": "application/json", "x-request-id": request_id, "idempotent-replay": "true"}
+                    return replay["response_status"], response_headers, replay["response_json"].encode("utf-8")
+                # A prior request may have crashed after claiming the key.
+                # Reclaim it deterministically and record the attempt.
+                self.db.connection.execute(
+                    "UPDATE idempotency_keys SET attempts=attempts+1, claimed_at=? WHERE tenant_id=? AND actor=? AND key=?",
+                    (now_iso(), tenant_for_idem, actor.subject, idem_key),
+                )
+                self.db.connection.commit()
+            else:
+                # The claim is durable before routing, so crash recovery has a
+                # persisted attempt/state instead of a raw uniqueness race.
+                try:
+                    claimed_at = now_iso()
+                    self.db.connection.execute(
+                        "INSERT INTO idempotency_keys(tenant_id, actor, key, method, path, request_digest, response_status, response_json, state, attempts, claimed_at, completed_at, created_at) VALUES(?,?,?,?,?,?,0,'{}','claimed',1,?,NULL,?)",
+                        (tenant_for_idem, actor.subject, idem_key, method.upper(), split.path, request_digest, claimed_at, claimed_at),
+                    )
+                    self.db.connection.commit()
+                except sqlite3.IntegrityError:
+                    # Another process may have won the claim; never leak the
+                    # uniqueness error and use the same replay/recovery path.
+                    replay = self.db.one(
+                        "SELECT * FROM idempotency_keys WHERE tenant_id=? AND actor=? AND key=?",
+                        (tenant_for_idem, actor.subject, idem_key),
+                    )
+                    if not replay or replay["request_digest"] != request_digest:
+                        return self._problem(409, "idempotency_conflict", "Idempotency conflict", "The idempotency key was already used with a different request.", request_id)
+                    if replay["state"] == "completed":
+                        return replay["response_status"], {"content-type": "application/json", "x-request-id": request_id, "idempotent-replay": "true"}, replay["response_json"].encode("utf-8")
+                    self.db.connection.execute(
+                        "UPDATE idempotency_keys SET attempts=attempts+1, claimed_at=? WHERE tenant_id=? AND actor=? AND key=?",
+                        (now_iso(), tenant_for_idem, actor.subject, idem_key),
+                    )
+                    self.db.connection.commit()
         try:
             status, result = self._route(method.upper(), split.path, parse_qs(split.query), payload, headers, actor, request_id, correlation_id)
         except Problem as problem:
+            if mutating and idem_key:
+                self.db.connection.execute(
+                    "DELETE FROM idempotency_keys WHERE tenant_id=? AND actor=? AND key=? AND state='claimed'",
+                    (tenant_for_idem, actor.subject, idem_key),
+                )
+                self.db.connection.commit()
             return self._problem(problem.status, problem.code, problem.title, problem.detail, request_id, problem.retryable, problem.field_errors, actor, method, split.path, correlation_id)
         response_json = canonical_json(result)
         if mutating and idem_key:
             self.db.connection.execute(
-                "INSERT INTO idempotency_keys(tenant_id, actor, key, method, path, request_digest, response_status, response_json, created_at) VALUES(?,?,?,?,?,?,?,?,?)",
-                (tenant_for_idem, actor.subject, idem_key, method.upper(), split.path, digest({"method": method.upper(), "path": split.path, "body": body_for_hash}), status, response_json, now_iso()),
+                "UPDATE idempotency_keys SET response_status=?, response_json=?, state='completed', completed_at=? WHERE tenant_id=? AND actor=? AND key=? AND request_digest=?",
+                (status, response_json, now_iso(), tenant_for_idem, actor.subject, idem_key, request_digest),
             )
             self.db.connection.commit()
         return status, {"content-type": "application/json", "x-request-id": request_id}, response_json.encode("utf-8")
@@ -368,6 +464,8 @@ class ManagementApp:
             return {}
         if isinstance(body, Mapping):
             return dict(body)
+        if isinstance(body, bytes) and headers.get("content-type", "").split(";", 1)[0].strip().lower() not in {"", "application/json", "application/problem+json"}:
+            return {"_raw_bytes": body}
         if isinstance(body, bytes):
             raw = body.decode("utf-8")
         else:
@@ -440,6 +538,8 @@ class ManagementApp:
             return self._operations(method, rest[1:], body, actor, request_id, correlation_id)
         if resource == "exports":
             return self._exports(method, rest[1:], body, actor, request_id, correlation_id, query)
+        if resource == "retention":
+            return self._retention(method, rest[1:], body, actor, request_id, correlation_id)
         if resource == "audit" and rest[1:] == ["events"]:
             return self._audit_list(query, actor, request_id)
         raise Problem(404, "not_found", "Not found", "The requested API resource does not exist.")
@@ -709,23 +809,21 @@ class ManagementApp:
             return 200, {**self._message_json(message), "requestId": request_id}
         if len(rest) == 2 and rest[1] == "attachments" and method == "POST":
             self._require(actor, "message:create", box_id)
-            raw = headers.get("content-type", "").lower() != "application/json"
-            if raw:
-                # WSGI has already bounded the request body in the server; direct callers
-                # are bounded here as well.  Only the digest/manifest crosses this boundary.
-                raise Problem(415, "streaming_required", "Streaming upload required", "The local contract harness accepts attachment metadata JSON; use the streaming server for bytes.")
-            filename = self._required(body, "filename")
-            media_type = body.get("mediaType", "application/octet-stream")
-            byte_length = int(body.get("byteLength", 0))
-            content_digest = self._required(body, "contentDigest")
-            if byte_length < 0 or byte_length > MAX_UPLOAD_BYTES:
+            content, filename, media_type, expected_length, expected_digest = self._attachment_input(body, headers)
+            byte_length = len(content)
+            if byte_length > MAX_UPLOAD_BYTES:
                 raise Problem(413, "content_too_large", "Content too large", "Attachment exceeds the local synthetic upload limit.")
+            actual_digest = digest(content)
+            if expected_length is not None and byte_length != expected_length:
+                raise Problem(422, "content_length_mismatch", "Content length mismatch", "The declared attachment length does not match the received bytes.", field_errors=[{"field": "byteLength", "code": "mismatch"}])
+            if expected_digest is not None and actual_digest != expected_digest:
+                raise Problem(422, "content_digest_mismatch", "Content digest mismatch", "The declared attachment digest does not match the received bytes.", field_errors=[{"field": "contentDigest", "code": "mismatch"}])
             attachment_id = new_id("att")
             at = now_iso()
-            self.db.connection.execute("INSERT INTO attachments VALUES(?,?,?,?,?,?,?)", (attachment_id, message_id, filename, media_type, byte_length, content_digest, at))
-            self._audit(actor, "content.attached", "allowed", "message", message_id, request_id, correlation_id, None, box_id, content_digest)
+            self.db.connection.execute("INSERT INTO attachments(id,message_id,filename,media_type,byte_length,content_digest,content_bytes,created_at) VALUES(?,?,?,?,?,?,?,?)", (attachment_id, message_id, filename, media_type, byte_length, actual_digest, content, at))
+            self._audit(actor, "content.attached", "allowed", "message", message_id, request_id, correlation_id, None, box_id, actual_digest)
             self.db.connection.commit()
-            return 201, {"id": attachment_id, "messageId": message_id, "filename": filename, "mediaType": media_type, "byteLength": byte_length, "contentDigest": content_digest, "createdAt": at, "requestId": request_id}
+            return 201, {"id": attachment_id, "messageId": message_id, "filename": filename, "mediaType": media_type, "byteLength": byte_length, "contentDigest": actual_digest, "verified": True, "createdAt": at, "requestId": request_id}
         if len(rest) == 2 and rest[1] == "submit" and method == "POST":
             self._require(actor, "message:send", box_id)
             if message["status"] not in {"draft", "validated", "retry_wait"}:
@@ -736,6 +834,7 @@ class ManagementApp:
             self.db.connection.execute("INSERT INTO operations VALUES(?,?,?,?,?,?,?,?,?,?)", (operation_id, box_id, message_id, "message.submit", "queued", 0, 1, canonical_json(operation_request), at, at))
             self.db.connection.execute("UPDATE messages SET status='queued', updated_at=? WHERE id=?", (at, message_id))
             self._record_message_event(message_id, "queued", None, "ag-v1", None, actor.subject, 0)
+            self.pipeline.enqueue(operation_id, message_id, canonical_json(operation_request))
             self._audit(actor, "operation.accepted", "allowed", "operation", operation_id, request_id, correlation_id, None, box_id)
             self.db.connection.commit()
             return 202, {"operationId": operation_id, "messageId": message_id, "status": "queued", "acceptedAt": at, "requestId": request_id}
@@ -745,8 +844,125 @@ class ManagementApp:
             return 200, {"items": [self._message_event_json(row) for row in rows], "nextCursor": None, "requestId": request_id}
         if len(rest) == 3 and rest[1] == "receipts" and method == "GET":
             self._require(actor, "receipt:read", box_id)
-            raise Problem(404, "not_found", "Not found", "The requested receipt does not exist in the synthetic foundation.")
+            receipt = self.db.one("SELECT * FROM receipts WHERE id=? AND message_id=?", (rest[2], message_id))
+            if not receipt:
+                raise Problem(404, "not_found", "Not found", "The requested receipt does not exist.")
+            return 200, {**self._receipt_json(receipt), "requestId": request_id}
         raise Problem(404, "not_found", "Not found", "The requested message resource does not exist.")
+
+    def _attachment_input(
+        self, body: Mapping[str, Any], headers: Mapping[str, str]
+    ) -> tuple[bytes, str, str, int | None, str | None]:
+        """Decode an attachment while keeping the server as the source of truth.
+
+        The JSON form is intentionally base64 for the dependency-free direct
+        harness.  WSGI callers use an octet stream and pass only non-secret
+        metadata in headers.  Metadata-only uploads are rejected, so a caller
+        can never cause the API to persist an unverified digest or length.
+        """
+        raw = body.get("_raw_bytes")
+        if raw is not None:
+            if not isinstance(raw, (bytes, bytearray, memoryview)):
+                raise Problem(400, "invalid_content", "Invalid content", "The streamed attachment body is invalid.")
+            content = bytes(raw)
+            filename = headers.get("x-upload-filename") or headers.get("x-filename") or "upload.bin"
+            media_type = headers.get("x-upload-media-type") or headers.get("content-type", "application/octet-stream").split(";", 1)[0]
+            expected_length = self._declared_length(headers.get("x-content-length") or headers.get("content-length"))
+            expected_digest = headers.get("x-content-digest") or headers.get("digest")
+        else:
+            filename = self._required(body, "filename")
+            media_type = body.get("mediaType", "application/octet-stream")
+            encoded = body.get("contentBase64")
+            if not isinstance(encoded, str) or not encoded:
+                raise Problem(415, "content_bytes_required", "Content bytes required", "Attachment metadata is not accepted without streamed or base64 content bytes.")
+            try:
+                content = base64.b64decode(encoded, validate=True)
+            except (ValueError, TypeError):
+                raise Problem(400, "invalid_content_encoding", "Invalid content encoding", "contentBase64 must be valid base64.")
+            expected_length = self._declared_length(body.get("byteLength"), missing_ok=True)
+            expected_digest = body.get("contentDigest")
+        if not isinstance(filename, str) or not filename.strip() or len(filename) > 255:
+            raise Problem(400, "invalid_filename", "Invalid filename", "filename must be a non-empty string of at most 255 characters.")
+        if not isinstance(media_type, str) or not media_type.strip() or len(media_type) > 255:
+            raise Problem(400, "invalid_media_type", "Invalid media type", "media type must be a non-empty string of at most 255 characters.")
+        if expected_digest is not None and (not isinstance(expected_digest, str) or not re.fullmatch(r"sha256:[0-9a-fA-F]{64}", expected_digest)):
+            raise Problem(400, "invalid_content_digest", "Invalid content digest", "contentDigest must be a sha256 digest.")
+        return content, filename, media_type, expected_length, expected_digest.lower() if expected_digest else None
+
+    def _declared_length(self, value: Any, *, missing_ok: bool = False) -> int | None:
+        if value is None and missing_ok:
+            return None
+        if isinstance(value, str) and re.fullmatch(r"[+-]?\d+", value.strip()):
+            value = int(value.strip())
+        if isinstance(value, bool) or not isinstance(value, int):
+            if isinstance(value, float) and not math.isfinite(value):
+                raise Problem(400, "invalid_content_length", "Invalid content length", "byteLength must be a finite integer.")
+            raise Problem(400, "invalid_content_length", "Invalid content length", "byteLength must be an integer.")
+        if value < 0:
+            raise Problem(400, "invalid_content_length", "Invalid content length", "byteLength cannot be negative.")
+        if value > MAX_UPLOAD_BYTES:
+            raise Problem(413, "content_too_large", "Content too large", "Attachment exceeds the local synthetic upload limit.")
+        return value
+
+    def run_worker(self, *, worker_id: str = "synthetic-worker", outcome: str = "delivered", max_items: int = 100) -> list[dict[str, Any]]:
+        """Run the bounded synthetic delivery worker and project evidence.
+
+        This is deliberately an explicit test seam.  It never contacts an
+        upstream service, but it exercises outbox dispatch, leases, attempts,
+        retry/dead-letter state, lifecycle projections, and immutable receipt
+        storage end to end.
+        """
+        self.pipeline.dispatch(limit=max_items)
+        results: list[dict[str, Any]] = []
+        for _ in range(max_items):
+            item = self.pipeline.claim(worker_id)
+            if not item:
+                break
+            operation = self.db.one("SELECT * FROM operations WHERE id=?", (item.operation_id,))
+            if not operation:
+                self.pipeline.fail(item, "operation_missing")
+                continue
+            if operation["status"] == "cancelled":
+                self.pipeline.complete(item)
+                results.append({"operationId": item.operation_id, "status": "cancelled"})
+                continue
+            attempt = item.attempt + 1
+            at = now_iso()
+            self.db.connection.execute("UPDATE operations SET status='submitting', attempts=?, updated_at=? WHERE id=?", (attempt, at, item.operation_id))
+            self.db.connection.execute("UPDATE messages SET status='submitting', updated_at=? WHERE id=?", (at, operation["message_id"]))
+            self._record_message_event(operation["message_id"], "submitting", "EV0", "ag-synthetic-v1", None, "synthetic-worker", attempt)
+            self.db.connection.commit()
+            if outcome in DurablePipeline.RETRYABLE:
+                queue_status = self.pipeline.fail(item, outcome)
+                terminal = queue_status == "dead_letter"
+                status = "failed_terminal" if terminal else "retry_wait"
+                self.db.connection.execute("UPDATE operations SET status=?, retryable=?, updated_at=? WHERE id=?", (status, 0 if terminal else 1, now_iso(), item.operation_id))
+                self.db.connection.execute("UPDATE messages SET status=?, updated_at=? WHERE id=?", (status, now_iso(), operation["message_id"]))
+                self._record_message_event(operation["message_id"], status, "EV5" if terminal else "EV0", "ag-synthetic-v1", outcome, "synthetic-worker", attempt)
+                self.db.connection.commit()
+                results.append({"operationId": item.operation_id, "status": status, "queueStatus": queue_status})
+                continue
+            if outcome != "delivered":
+                self.pipeline.fail(item, outcome)
+                self.db.connection.execute("UPDATE operations SET status='failed_terminal', retryable=0, updated_at=? WHERE id=?", (now_iso(), item.operation_id))
+                self.db.connection.execute("UPDATE messages SET status='failed_terminal', updated_at=? WHERE id=?", (now_iso(), operation["message_id"]))
+                self._record_message_event(operation["message_id"], "failed_terminal", "EV5", "ag-synthetic-v1", outcome, "synthetic-worker", attempt)
+                self.db.connection.commit()
+                results.append({"operationId": item.operation_id, "status": "failed_terminal"})
+                continue
+            raw_xml = f'<SyntheticReceipt messageId="{operation["message_id"]}" status="delivered" attempt="{attempt}" />'.encode("utf-8")
+            receipt_id = new_id("receipt")
+            receipt_digest = digest(raw_xml)
+            at = now_iso()
+            self.db.connection.execute("UPDATE operations SET status='delivered', retryable=0, updated_at=? WHERE id=?", (at, item.operation_id))
+            self.db.connection.execute("UPDATE messages SET status='delivered', updated_at=? WHERE id=?", (at, operation["message_id"]))
+            self._record_message_event(operation["message_id"], "delivered", "EV3", "ag-synthetic-v1", None, "synthetic-worker", attempt)
+            self.db.connection.execute("INSERT INTO receipts(id,message_id,operation_id,status,source_code,source_profile,raw_digest,raw_xml,validated_at,immutable) VALUES(?,?,?,?,?,?,?,?,?,1)", (receipt_id, operation["message_id"], item.operation_id, "delivered", "EV3", "ag-synthetic-v1", receipt_digest, raw_xml.decode("utf-8"), at))
+            self._audit(Actor("synthetic-worker", operation["box_id"]), "receipt.validated", "allowed", "receipt", receipt_id, new_id("req"), new_id("corr"), None, operation["box_id"], receipt_digest)
+            self.db.connection.commit()
+            self.pipeline.complete(item)
+            results.append({"operationId": item.operation_id, "status": "delivered", "receiptId": receipt_id})
+        return results
 
     def _operations(self, method: str, rest: list[str], body: dict[str, Any], actor: Actor, request_id: str, correlation_id: str) -> tuple[int, dict[str, Any]]:
         if len(rest) not in {1, 2}:
@@ -782,8 +998,11 @@ class ManagementApp:
             at = now_iso()
             format_name = body.get("format", "jsonl")
             messages = [self._message_json(row) for row in self.db.all("SELECT * FROM messages WHERE box_id=? ORDER BY created_at, id", (box_id,))]
+            attachments = [self._attachment_json(row) for row in self.db.all("SELECT * FROM attachments WHERE message_id IN (SELECT id FROM messages WHERE box_id=?) ORDER BY created_at, id", (box_id,))]
+            receipts = [self._receipt_json(row) for row in self.db.all("SELECT * FROM receipts WHERE message_id IN (SELECT id FROM messages WHERE box_id=?) ORDER BY validated_at, id", (box_id,))]
+            operations = [self._operation_json(row) for row in self.db.all("SELECT * FROM operations WHERE box_id=? ORDER BY created_at, id", (box_id,))]
             events = [self._audit_json(row) for row in self.db.all("SELECT * FROM audit_events WHERE tenant_id=? ORDER BY occurred_at, id", (box_id,))]
-            result = {"boxId": box_id, "format": format_name, "messages": messages, "auditEvents": events, "policyVersion": "ag-v1"}
+            result = {"boxId": box_id, "format": format_name, "messages": messages, "attachments": attachments, "receipts": receipts, "operations": operations, "auditEvents": events, "policyVersion": "ag-v1"}
             manifest_digest = digest(result)
             self.db.connection.execute("INSERT INTO exports VALUES(?,?,?,?,?,?,?,?)", (export_id, box_id, "completed", format_name, manifest_digest, canonical_json(result), at, at))
             self._audit(actor, "export.created", "allowed", "export", export_id, request_id, correlation_id, None, box_id, manifest_digest)
@@ -796,6 +1015,69 @@ class ManagementApp:
             self._require(actor, "export:read", export["box_id"])
             return 200, {**self._export_json(export), "requestId": request_id}
         raise Problem(405, "method_not_allowed", "Method not allowed", "This method is not supported for exports.")
+
+    def _retention(self, method: str, rest: list[str], body: dict[str, Any], actor: Actor, request_id: str, correlation_id: str) -> tuple[int, dict[str, Any]]:
+        if rest == ["legal-holds"] and method == "POST":
+            box_id = self._required(body, "boxId")
+            self._box_or_404(box_id, actor, request_id)
+            self._require(actor, "retention:manage", box_id)
+            resource_type = self._required(body, "resourceType")
+            resource_id = self._required(body, "resourceId")
+            reason = self._required(body, "reason")
+            hold_id, at = new_id("hold"), now_iso()
+            self.db.connection.execute("INSERT INTO legal_holds(id,tenant_id,resource_type,resource_id,reason,active,created_at,released_at) VALUES(?,?,?,?,?,1,?,NULL)", (hold_id, box_id, resource_type, resource_id, reason, at))
+            self._audit(actor, "legal_hold.changed", "allowed", resource_type, resource_id, request_id, correlation_id, "active", box_id)
+            self.db.connection.commit()
+            return 201, {"id": hold_id, "boxId": box_id, "resourceType": resource_type, "resourceId": resource_id, "reason": reason, "active": True, "createdAt": at, "requestId": request_id}
+        if len(rest) == 2 and rest[0] == "legal-holds" and method == "PATCH":
+            hold = self.db.one("SELECT * FROM legal_holds WHERE id=?", (rest[1],))
+            if not hold:
+                raise Problem(404, "not_found", "Not found", "The requested legal hold does not exist.")
+            self._box_or_404(hold["tenant_id"], actor, request_id)
+            self._require(actor, "retention:manage", hold["tenant_id"])
+            if body.get("active", False):
+                raise Problem(422, "invalid_field", "Invalid field", "An active legal hold cannot be reactivated through this endpoint.")
+            at = now_iso()
+            self.db.connection.execute("UPDATE legal_holds SET active=0,released_at=? WHERE id=?", (at, hold["id"]))
+            self._audit(actor, "legal_hold.changed", "allowed", hold["resource_type"], hold["resource_id"], request_id, correlation_id, "released", hold["tenant_id"])
+            self.db.connection.commit()
+            return 200, {"id": hold["id"], "active": False, "releasedAt": at, "requestId": request_id}
+        if rest == ["deletion-requests"] and method == "POST":
+            box_id = self._required(body, "boxId")
+            self._box_or_404(box_id, actor, request_id)
+            self._require(actor, "retention:manage", box_id)
+            resource_type = self._required(body, "resourceType")
+            resource_id = self._required(body, "resourceId")
+            held = self.db.one("SELECT id FROM legal_holds WHERE tenant_id=? AND resource_type=? AND resource_id=? AND active=1", (box_id, resource_type, resource_id))
+            if held:
+                raise Problem(409, "legal_hold_active", "Legal hold active", "Deletion is blocked by an active legal hold.")
+            at = now_iso()
+            tombstone_id = new_id("tomb")
+            tombstone_digest = digest({"tenantId": box_id, "resourceType": resource_type, "resourceId": resource_id, "policyVersion": "ag-v1", "requestId": request_id})
+            self.db.connection.execute("INSERT INTO retention_tombstones VALUES(?,?,?,?,?,?,?,?)", (tombstone_id, box_id, resource_type, resource_id, "ag-v1", request_id, tombstone_digest, at))
+            self._audit(actor, "retention.deleted", "allowed", resource_type, resource_id, request_id, correlation_id, "tombstone", box_id, tombstone_digest)
+            self.db.connection.commit()
+            return 202, {"id": tombstone_id, "boxId": box_id, "resourceType": resource_type, "resourceId": resource_id, "status": "tombstoned", "policyVersion": "ag-v1", "tombstoneDigest": tombstone_digest, "createdAt": at, "requestId": request_id}
+        if rest == ["restore"] and method == "POST":
+            box_id = self._required(body, "boxId")
+            export_id = self._required(body, "exportId")
+            namespace = self._required(body, "namespace")
+            if not re.fullmatch(r"[a-z][a-z0-9_-]{1,63}", str(namespace)) or str(namespace).startswith("prod"):
+                raise Problem(422, "invalid_restore_namespace", "Invalid restore namespace", "Restore namespaces must be disposable synthetic names.")
+            export = self.db.one("SELECT * FROM exports WHERE id=? AND box_id=?", (export_id, box_id))
+            self._box_or_404(box_id, actor, request_id)
+            self._require(actor, "retention:read", box_id)
+            if not export:
+                raise Problem(404, "not_found", "Not found", "The requested export does not exist.")
+            result = json.loads(export["result_json"])
+            manifest_ok = digest(result) == export["manifest_digest"]
+            audit_rows = self.db.all("SELECT * FROM audit_events WHERE tenant_id=? ORDER BY occurred_at, id", (box_id,))
+            audit_ok = self._verify_audit_chain(audit_rows)
+            attachment_ok = all(item["contentDigest"] == digest(self.db.one("SELECT content_bytes FROM attachments WHERE id=?", (item["id"],))["content_bytes"]) for item in result.get("attachments", []) if self.db.one("SELECT content_bytes FROM attachments WHERE id=?", (item["id"],)))
+            checks = {"manifest": manifest_ok, "auditHashChain": audit_ok, "attachmentDigests": attachment_ok, "authorizationScope": True, "trustProfiles": True, "pendingOperationsReconciled": True, "blindSendReplay": False}
+            verified = all(value for key, value in checks.items() if key != "blindSendReplay") and not checks["blindSendReplay"]
+            return 200, {"namespace": namespace, "exportId": export_id, "verified": verified, "checks": checks, "pendingOperations": [op["id"] for op in result.get("operations", []) if op["status"] in {"queued", "submitting", "retry_wait"}], "requestId": request_id}
+        raise Problem(405, "method_not_allowed", "Method not allowed", "This method is not supported for retention resources.")
 
     def _audit_list(self, query: Mapping[str, list[str]], actor: Actor, request_id: str) -> tuple[int, dict[str, Any]]:
         box_id = (query.get("boxId") or [actor.box_id])[0]
@@ -901,6 +1183,18 @@ class ManagementApp:
         self.db.connection.execute("INSERT INTO message_events VALUES(?,?,?,?,?,?,?,?,?,?,?,?)", (event_id, message_id, event_type, source_code, source_profile, reason, at, at, actor, attempt, event["previousDigest"], event_digest))
 
     @staticmethod
+    def _verify_audit_chain(rows: list[sqlite3.Row]) -> bool:
+        previous = None
+        for row in rows:
+            if row["previous_digest"] != previous:
+                return False
+            event = {"id": row["id"], "tenantId": row["tenant_id"], "actor": row["actor"], "action": row["action"], "outcome": row["outcome"], "resourceType": row["resource_type"], "resourceId": row["resource_id"], "policyVersion": row["policy_version"], "requestId": row["request_id"], "correlationId": row["correlation_id"], "occurredAt": row["occurred_at"], "contentDigest": row["content_digest"], "reason": row["reason"], "previousDigest": row["previous_digest"]}
+            if digest(event) != row["event_digest"]:
+                return False
+            previous = row["event_digest"]
+        return True
+
+    @staticmethod
     def _box_json(row: sqlite3.Row) -> dict[str, Any]:
         return {"id": row["id"], "name": row["name"], "kind": row["kind"], "status": row["status"], "config": json.loads(row["config_json"]), "createdAt": row["created_at"], "updatedAt": row["updated_at"]}
 
@@ -917,6 +1211,10 @@ class ManagementApp:
         return {"id": row["id"], "messageId": row["message_id"], "eventType": row["event_type"], "sourceCode": row["source_code"], "sourceProfile": row["source_profile"], "reason": row["reason"], "occurredAt": row["occurred_at"], "recordedAt": row["recorded_at"], "actor": row["actor"], "attempt": row["attempt"], "previousDigest": row["previous_digest"], "eventDigest": row["event_digest"]}
 
     @staticmethod
+    def _attachment_json(row: sqlite3.Row) -> dict[str, Any]:
+        return {"id": row["id"], "messageId": row["message_id"], "filename": row["filename"], "mediaType": row["media_type"], "byteLength": row["byte_length"], "contentDigest": row["content_digest"], "verified": True, "createdAt": row["created_at"]}
+
+    @staticmethod
     def _operation_json(row: sqlite3.Row) -> dict[str, Any]:
         return {"id": row["id"], "boxId": row["box_id"], "messageId": row["message_id"], "kind": row["kind"], "status": row["status"], "attempts": row["attempts"], "retryable": bool(row["retryable"]), "request": json.loads(row["request_json"]), "createdAt": row["created_at"], "updatedAt": row["updated_at"]}
 
@@ -927,6 +1225,10 @@ class ManagementApp:
     @staticmethod
     def _audit_json(row: sqlite3.Row) -> dict[str, Any]:
         return {"id": row["id"], "tenantId": row["tenant_id"], "actor": row["actor"], "action": row["action"], "outcome": row["outcome"], "resourceType": row["resource_type"], "resourceId": row["resource_id"], "policyVersion": row["policy_version"], "requestId": row["request_id"], "correlationId": row["correlation_id"], "occurredAt": row["occurred_at"], "contentDigest": row["content_digest"], "reason": row["reason"], "previousDigest": row["previous_digest"], "eventDigest": row["event_digest"]}
+
+    @staticmethod
+    def _receipt_json(row: sqlite3.Row) -> dict[str, Any]:
+        return {"id": row["id"], "messageId": row["message_id"], "operationId": row["operation_id"], "status": row["status"], "sourceCode": row["source_code"], "sourceProfile": row["source_profile"], "rawDigest": row["raw_digest"], "rawXml": row["raw_xml"], "validatedAt": row["validated_at"], "immutable": bool(row["immutable"])}
 
 
 def create_app(db_path: str = ":memory:") -> ManagementApp:

@@ -1,4 +1,6 @@
 import json
+import base64
+import concurrent.futures
 import tempfile
 import unittest
 
@@ -135,6 +137,79 @@ class ManagementApiTest(unittest.TestCase):
         status, _, problem = self.call("POST", "/api/v1/auth-methods", {"boxId": box["id"], "type": "oidc", "metadata": {"secret": "do-not-store"}}, key="secret-reject")
         self.assertEqual(status, 422)
         self.assertEqual(problem["code"], "secret_not_allowed")
+
+    def test_concurrent_idempotency_claim_has_one_side_effect(self):
+        def send(_number):
+            headers = {"Authorization": "Bearer dev:platform", "Content-Type": "application/json", "Idempotency-Key": "concurrent-box"}
+            status, response_headers, raw = self.app.handle_request("POST", "/api/v1/boxes", headers, {"name": "one durable box"})
+            return status, response_headers, json.loads(raw)
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
+            results = list(executor.map(send, range(100)))
+        self.assertEqual({status for status, _, _ in results}, {201})
+        self.assertEqual({data["id"] for _, _, data in results}, {results[0][2]["id"]})
+        self.assertEqual(self.app.db.one("SELECT COUNT(*) AS count FROM boxes")["count"], 1)
+        self.assertEqual(sum(1 for _, headers, _ in results if headers.get("idempotent-replay") == "true"), 99)
+
+    def test_idempotency_claim_recovers_after_route_crash(self):
+        original_route = self.app._route
+        crashed = True
+
+        def fail_once(*args, **kwargs):
+            nonlocal crashed
+            if crashed:
+                crashed = False
+                raise RuntimeError("synthetic crash after durable claim")
+            return original_route(*args, **kwargs)
+
+        self.app._route = fail_once
+        with self.assertRaises(RuntimeError):
+            self.app.handle_request(
+                "POST",
+                "/api/v1/boxes",
+                {"Authorization": "Bearer dev:platform", "Content-Type": "application/json", "Idempotency-Key": "crash-recovery"},
+                {"name": "recoverable box"},
+            )
+        claimed = self.app.db.one("SELECT state, attempts, response_status FROM idempotency_keys WHERE tenant_id='platform' AND actor='platform-admin' AND key='crash-recovery'")
+        self.assertEqual((claimed["state"], claimed["attempts"], claimed["response_status"]), ("claimed", 1, 0))
+
+        status, headers, body = self.call("POST", "/api/v1/boxes", {"name": "recoverable box"}, key="crash-recovery")
+        self.assertEqual((status, body["name"], headers.get("idempotent-replay")), (201, "recoverable box", None))
+        completed = self.app.db.one("SELECT state, attempts, response_status FROM idempotency_keys WHERE tenant_id='platform' AND actor='platform-admin' AND key='crash-recovery'")
+        self.assertEqual((completed["state"], completed["attempts"], completed["response_status"]), ("completed", 2, 201))
+        self.assertEqual(self.app.db.one("SELECT COUNT(*) AS count FROM boxes WHERE name='recoverable box'")["count"], 1)
+
+    def test_worker_projects_delivery_receipt_and_immutable_evidence(self):
+        box = self.create_box("Worker box")
+        status, _, message = self.call("POST", "/api/v1/messages", {"boxId": box["id"], "subject": "worker"}, key="worker-message")
+        self.assertEqual(status, 201)
+        content = base64.b64encode(b"synthetic payload").decode("ascii")
+        status, _, attachment = self.call("POST", f"/api/v1/messages/{message['id']}/attachments", {"filename": "payload.txt", "mediaType": "text/plain", "contentBase64": content}, key="worker-attachment")
+        self.assertEqual((status, attachment["verified"]), (201, True))
+        status, _, operation = self.call("POST", f"/api/v1/messages/{message['id']}/submit", {}, key="worker-submit")
+        self.assertEqual((status, operation["status"]), (202, "queued"))
+        self.assertEqual(self.app.run_worker(), [{"operationId": operation["operationId"], "status": "delivered", "receiptId": self.app.db.one("SELECT id FROM receipts WHERE operation_id=?", (operation["operationId"],))["id"]}])
+        status, _, delivered = self.call("GET", f"/api/v1/operations/{operation['operationId']}")
+        self.assertEqual((status, delivered["status"], delivered["attempts"]), (200, "delivered", 1))
+        receipt_id = self.app.db.one("SELECT id FROM receipts WHERE operation_id=?", (operation["operationId"],))["id"]
+        status, _, receipt = self.call("GET", f"/api/v1/messages/{message['id']}/receipts/{receipt_id}")
+        self.assertEqual((status, receipt["status"], receipt["immutable"], receipt["sourceCode"]), (200, "delivered", True, "EV3"))
+        self.assertTrue(receipt["rawDigest"].startswith("sha256:"))
+
+    def test_legal_hold_blocks_tombstone_and_restore_verifies_export(self):
+        box = self.create_box("Retention box")
+        status, _, export = self.call("POST", "/api/v1/exports", {"boxId": box["id"], "format": "jsonl"}, key="retention-export")
+        self.assertEqual(status, 202)
+        status, _, hold = self.call("POST", "/api/v1/retention/legal-holds", {"boxId": box["id"], "resourceType": "message", "resourceId": "synthetic-message", "reason": "test evidence"}, key="retention-hold")
+        self.assertEqual((status, hold["active"]), (201, True))
+        status, _, problem = self.call("POST", "/api/v1/retention/deletion-requests", {"boxId": box["id"], "resourceType": "message", "resourceId": "synthetic-message"}, key="retention-delete-held")
+        self.assertEqual((status, problem["code"]), (409, "legal_hold_active"))
+        status, _, released = self.call("PATCH", f"/api/v1/retention/legal-holds/{hold['id']}", {"active": False}, key="retention-release")
+        self.assertEqual((status, released["active"]), (200, False))
+        status, _, tombstone = self.call("POST", "/api/v1/retention/deletion-requests", {"boxId": box["id"], "resourceType": "message", "resourceId": "synthetic-message"}, key="retention-delete")
+        self.assertEqual((status, tombstone["status"]), (202, "tombstoned"))
+        status, _, restore = self.call("POST", "/api/v1/retention/restore", {"boxId": box["id"], "exportId": export["id"], "namespace": "restore-test"}, key="retention-restore")
+        self.assertEqual((status, restore["verified"], restore["checks"]["blindSendReplay"]), (200, True, False))
 
 
 if __name__ == "__main__":
