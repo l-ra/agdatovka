@@ -15,7 +15,7 @@
 <body>
   <main>
     <h1>AG Datovka 2</h1>
-    <p class="note">Milník 30. října 2026: zdokumentovaný, zdrojově podložený základ pro nezávislou reimplementaci veřejných rozhraní datových schránek.</p>
+    <p class="note">Milník Phase 2 navazuje na základ projektu a shrnuje ověřenou integraci, bezpečnostní omezení a odložené měření výkonu. Nejde o produkční release.</p>
     <h2>Co se změnilo</h2>
     <p>Commit <a href="https://github.com/l-ra/agdatovka/commit/111597ade20188581515939177251a8f2c3ff4af"><code>111597a</code></a> doplnil požadavky a jejich dohledatelnost, cílovou architekturu, správní API, hranice důvěry, datové toky, pravidla obnovy a vydání a plán kompatibility s Datovkou CZ.NIC.</p>
     <h2>Co je potvrzeno</h2>
@@ -23,7 +23,11 @@
       <li>Dokumenty jsou verzované a vzájemně provázané.</li>
       <li>Zdrojový registr odkazuje na oficiální ISDS/CZ.NIC stránky, standardy a právní zdroje EU.</li>
       <li>Správní API a architektura jsou specifikované pro plánování implementace.</li>
-      <li>Výkonové scénáře zahrnují budoucí profil 1&nbsp;000 zpráv za minutu a velké zprávy.</li>
+      <li>Výkonové scénáře zahrnují budoucí profil 1&nbsp;000 zpráv za minutu a velké zprávy; měření je stále odložené.</li>
+      <li>Tenant-isolation remediation is verified; the independent review still retains an adverse release verdict outside synthetic scope.</li>
+      <li>Offline synthetic compatibility/conformance is marked PASS for its checked-in scope; live interoperability is not claimed.</li>
+      <li>Performance scenarios are ready for a future approved run, but performance is not measured.</li>
+      <li><a href="reporting/2026-11-01-phase2-release-readiness.md">Read the Phase 2 release-readiness milestone</a>.</li>
     </ul>
     <h2>Co potvrzeno není</h2>
     <ul>
