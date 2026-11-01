@@ -2,6 +2,7 @@
 set -eu
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 python3 "$root/scripts/smoke.py" --profile offline-fixture
+python3 "$root/scripts/local_workflow.py" --manifest "${TMPDIR:-/tmp}/agda-29-fork-manifest.json" >/dev/null
 for profile in ag-synthetic isds-public-test; do
   python3 "$root/scripts/smoke.py" --profile "$profile"
 done

@@ -16,6 +16,11 @@ Upstream provenance is pinned in `UPSTREAM.md` at commit
 `patches/0001-endpoint-profile-layer.patch` and the attribution boundary is in
 `NOTICE`.
 
+The local isolated workflow is recorded in `../evidence/AGDA-29/README.md` and
+`../evidence/AGDA-29/run-manifest.json`. It covers login/configuration, send,
+retrieve, lifecycle/receipt, search, and export using only the synthetic API
+boundary and an in-process worker seam.
+
 ## Reproduction
 
 ```sh

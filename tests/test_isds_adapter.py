@@ -1,3 +1,4 @@
+import base64
 import json
 import unittest
 from pathlib import Path
@@ -36,6 +37,14 @@ class IsdsAdapterTest(unittest.TestCase):
         self.assertEqual(zfo.message_id, receipt.message_id)
         self.assertIn(b"synthetic-msg-001", self.adapter.export_evidence(receipt, format="xml"))
         self.assertTrue(self.adapter.export_evidence(receipt, format="zfo").startswith(b"SYNTHETIC-ZFO"))
+        self.assertEqual(receipt.data["validation"]["status"], "passed")
+        self.assertEqual(base64.b64decode(receipt.data["rawEvidenceBase64"]), raw)
+
+    def test_receipt_signature_chain_and_error_cases_fail_closed(self):
+        for attribute, value, code in (("signatureStatus", "invalid", "invalid_receipt_signature"), ("chainStatus", "invalid", "invalid_receipt_chain"), ("errorCode", "INVALID_RECEIPT", "receipt_error")):
+            raw = f'<SyntheticReceipt messageId="synthetic-msg-001" status="delivered" {attribute}="{value}" />'.encode()
+            with self.assertRaisesRegex(AdapterError, code):
+                self.adapter.parse_receipt(raw)
 
     def test_errors_and_invalid_inputs_are_structured(self):
         error = self.adapter.parse_error(self.load("errors.json")[0])

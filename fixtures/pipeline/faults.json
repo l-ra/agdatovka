@@ -6,6 +6,11 @@
     {"id": "upstream-timeout", "input": "timeout", "expected": "bounded exponential retry"},
     {"id": "upstream-429", "input": "429", "expected": "retry_wait"},
     {"id": "upstream-5xx", "input": "503", "expected": "dead_letter after max attempts"},
+    {"id": "poison-message", "input": "poison", "expected": "dead_letter without retry"},
+    {"id": "tenant-backpressure", "input": "one tenant at limit", "expected": "other tenant remains admissible"},
+    {"id": "worker-restart-pre-submit", "input": "crash before adapter", "expected": "lease expiry permits reclaim"},
+    {"id": "worker-restart-post-submit", "input": "crash after adapter submit", "expected": "stable adapter key reconciles without duplicate side effect"},
+    {"id": "worker-restart-post-receipt", "input": "crash after receipt commit", "expected": "receipt remains unique and operation is reconciled"},
     {"id": "worker-restart", "input": "expired lease", "expected": "another worker reclaims item"}
   ]
 }
