@@ -1,0 +1,15 @@
+{
+  "profile": "ag-synthetic-content-v1",
+  "syntheticOnly": true,
+  "seed": "agda-23-content-boundaries-v1",
+  "payload": "c3ludGhldGljIHJlc3VtYWJsZSBieXRlcw==",
+  "sha256": "sha256:35714de4ffb610d0240fc6ca3acb96d09edd341164d4def53f5338dc07ca59d1",
+  "byteLength": 25,
+  "lengthCases": [
+    {"value": "missing", "status": 201},
+    {"value": "not-an-integer", "status": 400, "code": "invalid_content_length"},
+    {"value": "non-finite", "status": 400, "code": "invalid_content_length"},
+    {"value": -1, "status": 400, "code": "invalid_content_length"},
+    {"value": 16777217, "status": 413, "code": "content_too_large"}
+  ]
+}

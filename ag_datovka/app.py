@@ -335,10 +335,21 @@ class ManagementApp:
             headers["CONTENT-TYPE"] = environ["CONTENT_TYPE"]
         if "CONTENT_LENGTH" in environ:
             headers["CONTENT-LENGTH"] = environ["CONTENT_LENGTH"]
+        declared_length = environ.get("CONTENT_LENGTH")
         try:
-            length = int(environ.get("CONTENT_LENGTH") or 0)
-        except ValueError:
-            length = 0
+            length = int(declared_length) if declared_length not in (None, "") else 0
+        except (TypeError, ValueError):
+            request_id = environ.get("HTTP_X_REQUEST_ID") or new_id("req")
+            problem = Problem(400, "invalid_content_length", "Invalid content length", "Content-Length must be an integer.")
+            payload = canonical_json(problem.as_json(request_id)).encode("utf-8")
+            start_response("400 Bad Request", [("content-type", "application/problem+json"), ("x-request-id", request_id)])
+            return [payload]
+        if length < 0:
+            request_id = environ.get("HTTP_X_REQUEST_ID") or new_id("req")
+            problem = Problem(400, "invalid_content_length", "Invalid content length", "Content-Length cannot be negative.")
+            payload = canonical_json(problem.as_json(request_id)).encode("utf-8")
+            start_response("400 Bad Request", [("content-type", "application/problem+json"), ("x-request-id", request_id)])
+            return [payload]
         if length > MAX_UPLOAD_BYTES:
             request_id = environ.get("HTTP_X_REQUEST_ID") or new_id("req")
             problem = Problem(413, "content_too_large", "Content too large", "The request exceeds the local synthetic upload limit.")

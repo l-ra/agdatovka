@@ -21,6 +21,23 @@ class StreamingPipelineTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 store.put((b"wrong",), filename="bad", expected_digest="sha256:" + "0" * 64)
 
+    def test_interrupted_upload_is_not_published_and_resume_has_one_object(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = ContentStore(directory, max_bytes=64)
+
+            def interrupted():
+                yield b"prefix-"
+                raise OSError("synthetic connection interruption")
+
+            with self.assertRaises(OSError):
+                store.put(interrupted(), filename="resume.bin")
+            self.assertEqual(list(store.root.iterdir()), [])
+            manifest = store.put((part for part in (b"prefix-", b"suffix")), filename="resume.bin")
+            self.assertEqual([path.name for path in store.root.iterdir()], [manifest.content_id])
+            self.assertEqual(manifest.byte_length, len(b"prefix-suffix"))
+            with store.open(manifest) as stream:
+                self.assertEqual(stream.read(), b"prefix-suffix")
+
     def test_outbox_dispatch_and_duplicate_submission_are_idempotent(self):
         connection = sqlite3.connect(":memory:")
         pipeline = DurablePipeline(connection)
