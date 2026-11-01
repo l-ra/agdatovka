@@ -52,3 +52,12 @@ contain tokens, private keys, personal data, or full message bodies.
 - If secrets or personal data appear in a work product, stop publication,
   revoke/rotate the affected credential if real, and use the security incident
   path. Do not delete the evidence before the incident owner records the scope.
+# Synthetic worker recovery note
+
+The local worker uses an expiring lease and a durable adapter side-effect key
+(`operationId:attempt:N`). On restart, reclaim only after lease expiry, inspect
+the side-effect record, and reconcile the synthetic adapter evidence before
+projecting `delivered`. A receipt is unique per operation and is never inferred
+from a queue completion alone. `fixtures/pipeline/faults.json` and
+`evidence/AGDA-24/README.md` are deterministic fixture evidence, not production
+or external-delivery proof.

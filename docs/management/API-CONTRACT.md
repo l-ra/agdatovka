@@ -117,12 +117,13 @@ headers. The server remains authoritative for the recorded digest and length.
 
 ### Synthetic worker and receipts
 
-Submit creates a durable outbox item and returns `queued`. The explicit local
-`ManagementApp.run_worker()` seam dispatches leases through the synthetic
-adapter, projects `submitting` and `delivered` lifecycle events, and persists
-an immutable receipt with raw evidence digest. It never contacts a public or
-production endpoint. A `delivered` projection is therefore synthetic worker
-evidence, not a legal or production delivery claim.
+Submit creates the operation projection and durable outbox item in one request
+transaction and returns `queued`. The explicit local `ManagementApp.run_worker()`
+seam dispatches tenant-scoped leases through the synthetic adapter, persists a
+stable per-attempt reconciliation key, projects `submitting` and `delivered`
+lifecycle events, and persists an immutable receipt with raw evidence digest.
+It never contacts a public or production endpoint. A `delivered` projection is
+therefore synthetic worker evidence, not a legal or production delivery claim.
 
 ### Retention and restore controls
 

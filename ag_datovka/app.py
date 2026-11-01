@@ -450,6 +450,11 @@ class ManagementApp:
                 )
                 self.db.connection.commit()
             return self._problem(problem.status, problem.code, problem.title, problem.detail, request_id, problem.retryable, problem.field_errors, actor, method, split.path, correlation_id)
+        except Exception:
+            # A submit must not leave an operation/message projection without
+            # its outbox row (or vice versa) when the route crashes.
+            self.db.connection.rollback()
+            raise
         response_json = canonical_json(result)
         if mutating and idem_key:
             self.db.connection.execute(
@@ -842,11 +847,14 @@ class ManagementApp:
                 raise Problem(409, "message_not_submittable", "Message not submittable", "Only draft, validated, or retry_wait messages can be submitted.")
             operation_id = new_id("op")
             at = now_iso()
-            operation_request = {"messageId": message_id, **body}
+            operation_request = {"messageId": message_id, "tenantId": box_id, **body}
             self.db.connection.execute("INSERT INTO operations VALUES(?,?,?,?,?,?,?,?,?,?)", (operation_id, box_id, message_id, "message.submit", "queued", 0, 1, canonical_json(operation_request), at, at))
             self.db.connection.execute("UPDATE messages SET status='queued', updated_at=? WHERE id=?", (at, message_id))
             self._record_message_event(message_id, "queued", None, "ag-v1", None, actor.subject, 0)
-            self.pipeline.enqueue(operation_id, message_id, canonical_json(operation_request))
+            # Keep the operation row, message projection, audit event, and
+            # outbox insert in one SQLite transaction.  The dispatcher only
+            # sees this item after the final request commit.
+            self.pipeline.enqueue(operation_id, message_id, canonical_json(operation_request), tenant_id=box_id, commit=False)
             self._audit(actor, "operation.accepted", "allowed", "operation", operation_id, request_id, correlation_id, None, box_id)
             self.db.connection.commit()
             return 202, {"operationId": operation_id, "messageId": message_id, "status": "queued", "acceptedAt": at, "requestId": request_id}
@@ -916,7 +924,7 @@ class ManagementApp:
             raise Problem(413, "content_too_large", "Content too large", "Attachment exceeds the local synthetic upload limit.")
         return value
 
-    def run_worker(self, *, worker_id: str = "synthetic-worker", outcome: str = "delivered", max_items: int = 100) -> list[dict[str, Any]]:
+    def run_worker(self, *, worker_id: str = "synthetic-worker", outcome: str = "delivered", max_items: int = 100, lease_seconds: int = 60, crash_at: str | None = None) -> list[dict[str, Any]]:
         """Run the bounded synthetic delivery worker and project evidence.
 
         This is deliberately an explicit test seam.  It never contacts an
@@ -927,7 +935,7 @@ class ManagementApp:
         self.pipeline.dispatch(limit=max_items)
         results: list[dict[str, Any]] = []
         for _ in range(max_items):
-            item = self.pipeline.claim(worker_id)
+            item = self.pipeline.claim(worker_id, lease_seconds=lease_seconds)
             if not item:
                 break
             operation = self.db.one("SELECT * FROM operations WHERE id=?", (item.operation_id,))
@@ -939,12 +947,27 @@ class ManagementApp:
                 results.append({"operationId": item.operation_id, "status": "cancelled"})
                 continue
             attempt = item.attempt + 1
+            if crash_at == "pre-submit":
+                raise RuntimeError("synthetic worker crash before submit")
+            side_effect = self.pipeline.prepare_side_effect(item)
+            evidence = {
+                "adapter": "ag-synthetic-v1",
+                "operationId": item.operation_id,
+                "messageId": operation["message_id"],
+                "attempt": attempt,
+                "idempotencyKey": side_effect["idempotencyKey"],
+            }
+            if outcome == "delivered":
+                self.pipeline.record_side_effect(item, state="submitted", evidence=evidence, adapter_status="accepted")
+                if crash_at == "post-submit":
+                    raise RuntimeError("synthetic worker crash after adapter submit")
             at = now_iso()
             self.db.connection.execute("UPDATE operations SET status='submitting', attempts=?, updated_at=? WHERE id=?", (attempt, at, item.operation_id))
             self.db.connection.execute("UPDATE messages SET status='submitting', updated_at=? WHERE id=?", (at, operation["message_id"]))
             self._record_message_event(operation["message_id"], "submitting", "EV0", "ag-synthetic-v1", None, "synthetic-worker", attempt)
             self.db.connection.commit()
             if outcome in DurablePipeline.RETRYABLE:
+                self.pipeline.record_side_effect(item, state="unknown", evidence=evidence, adapter_status=outcome)
                 queue_status = self.pipeline.fail(item, outcome)
                 terminal = queue_status == "dead_letter"
                 status = "failed_terminal" if terminal else "retry_wait"
@@ -955,6 +978,7 @@ class ManagementApp:
                 results.append({"operationId": item.operation_id, "status": status, "queueStatus": queue_status})
                 continue
             if outcome != "delivered":
+                self.pipeline.record_side_effect(item, state="failed", evidence=evidence, adapter_status=outcome)
                 self.pipeline.fail(item, outcome)
                 self.db.connection.execute("UPDATE operations SET status='failed_terminal', retryable=0, updated_at=? WHERE id=?", (now_iso(), item.operation_id))
                 self.db.connection.execute("UPDATE messages SET status='failed_terminal', updated_at=? WHERE id=?", (now_iso(), operation["message_id"]))
@@ -963,15 +987,20 @@ class ManagementApp:
                 results.append({"operationId": item.operation_id, "status": "failed_terminal"})
                 continue
             raw_xml = f'<SyntheticReceipt messageId="{operation["message_id"]}" status="delivered" attempt="{attempt}" />'.encode("utf-8")
-            receipt_id = new_id("receipt")
+            existing_receipt = self.db.one("SELECT id FROM receipts WHERE operation_id=?", (item.operation_id,))
+            receipt_id = existing_receipt["id"] if existing_receipt else new_id("receipt")
             receipt_digest = digest(raw_xml)
             at = now_iso()
-            self.db.connection.execute("UPDATE operations SET status='delivered', retryable=0, updated_at=? WHERE id=?", (at, item.operation_id))
-            self.db.connection.execute("UPDATE messages SET status='delivered', updated_at=? WHERE id=?", (at, operation["message_id"]))
-            self._record_message_event(operation["message_id"], "delivered", "EV3", "ag-synthetic-v1", None, "synthetic-worker", attempt)
-            self.db.connection.execute("INSERT INTO receipts(id,message_id,operation_id,status,source_code,source_profile,raw_digest,raw_xml,validated_at,immutable) VALUES(?,?,?,?,?,?,?,?,?,1)", (receipt_id, operation["message_id"], item.operation_id, "delivered", "EV3", "ag-synthetic-v1", receipt_digest, raw_xml.decode("utf-8"), at))
-            self._audit(Actor("synthetic-worker", operation["box_id"]), "receipt.validated", "allowed", "receipt", receipt_id, new_id("req"), new_id("corr"), None, operation["box_id"], receipt_digest)
-            self.db.connection.commit()
+            if not existing_receipt:
+                self.db.connection.execute("UPDATE operations SET status='delivered', retryable=0, updated_at=? WHERE id=?", (at, item.operation_id))
+                self.db.connection.execute("UPDATE messages SET status='delivered', updated_at=? WHERE id=?", (at, operation["message_id"]))
+                self._record_message_event(operation["message_id"], "delivered", "EV3", "ag-synthetic-v1", None, "synthetic-worker", attempt)
+                self.db.connection.execute("INSERT INTO receipts(id,message_id,operation_id,status,source_code,source_profile,raw_digest,raw_xml,validated_at,immutable) VALUES(?,?,?,?,?,?,?,?,?,1)", (receipt_id, operation["message_id"], item.operation_id, "delivered", "EV3", "ag-synthetic-v1", receipt_digest, raw_xml.decode("utf-8"), at))
+                self._audit(Actor("synthetic-worker", operation["box_id"]), "receipt.validated", "allowed", "receipt", receipt_id, new_id("req"), new_id("corr"), None, operation["box_id"], receipt_digest)
+                self.db.connection.commit()
+            if crash_at == "post-receipt":
+                raise RuntimeError("synthetic worker crash after receipt persistence")
+            self.pipeline.record_side_effect(item, state="reconciled", evidence={**evidence, "receiptId": receipt_id}, adapter_status="delivered")
             self.pipeline.complete(item)
             results.append({"operationId": item.operation_id, "status": "delivered", "receiptId": receipt_id})
         return results
@@ -996,7 +1025,7 @@ class ManagementApp:
             return 202, {"id": operation["id"], "status": "cancelled", "updatedAt": at, "requestId": request_id}
         if method == "GET":
             self._require(actor, "operation:read", operation["box_id"])
-            return 200, {**self._operation_json(operation), "requestId": request_id}
+            return 200, {**self._operation_json(operation), "pipelineSideEffect": self.pipeline.side_effect(operation["id"]), "requestId": request_id}
         if method == "POST" and len(rest) == 1:
             raise Problem(405, "method_not_allowed", "Method not allowed", "Use /operations/{id}/cancel to cancel an operation.")
         raise Problem(405, "method_not_allowed", "Method not allowed", "This method is not supported for an operation.")

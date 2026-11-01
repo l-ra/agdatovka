@@ -196,6 +196,32 @@ class ManagementApiTest(unittest.TestCase):
         self.assertEqual((status, receipt["status"], receipt["immutable"], receipt["sourceCode"]), (200, "delivered", True, "EV3"))
         self.assertTrue(receipt["rawDigest"].startswith("sha256:"))
 
+    def test_worker_reconciles_post_submit_and_post_receipt_crashes(self):
+        box = self.create_box("Crash recovery box")
+        status, _, message = self.call("POST", "/api/v1/messages", {"boxId": box["id"], "subject": "crash-recovery"}, key="crash-message")
+        self.assertEqual(status, 201)
+        status, _, operation = self.call("POST", f"/api/v1/messages/{message['id']}/submit", {}, key="crash-submit")
+        self.assertEqual(status, 202)
+
+        with self.assertRaisesRegex(RuntimeError, "after adapter submit"):
+            self.app.run_worker(lease_seconds=0, crash_at="post-submit")
+        side_effect = self.app.pipeline.side_effect(operation["operationId"])
+        self.assertEqual(side_effect["state"], "submitted")
+        delivered = self.app.run_worker(lease_seconds=0)
+        self.assertEqual(delivered[0]["status"], "delivered")
+        self.assertEqual(self.app.db.one("SELECT COUNT(*) AS count FROM receipts WHERE operation_id=?", (operation["operationId"],))["count"], 1)
+
+        status, _, message_two = self.call("POST", "/api/v1/messages", {"boxId": box["id"], "subject": "receipt-crash"}, key="receipt-crash-message")
+        self.assertEqual(status, 201)
+        status, _, operation_two = self.call("POST", f"/api/v1/messages/{message_two['id']}/submit", {}, key="receipt-crash-submit")
+        self.assertEqual(status, 202)
+        with self.assertRaisesRegex(RuntimeError, "after receipt persistence"):
+            self.app.run_worker(lease_seconds=0, crash_at="post-receipt")
+        self.assertEqual(self.app.db.one("SELECT status FROM operations WHERE id=?", (operation_two["operationId"],))["status"], "delivered")
+        resumed = self.app.run_worker(lease_seconds=0)
+        self.assertEqual(resumed[0]["status"], "delivered")
+        self.assertEqual(self.app.db.one("SELECT COUNT(*) AS count FROM receipts WHERE operation_id=?", (operation_two["operationId"],))["count"], 1)
+
     def test_legal_hold_blocks_tombstone_and_restore_verifies_export(self):
         box = self.create_box("Retention box")
         status, _, export = self.call("POST", "/api/v1/exports", {"boxId": box["id"], "format": "jsonl"}, key="retention-export")

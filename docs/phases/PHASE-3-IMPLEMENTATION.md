@@ -43,8 +43,10 @@ what remains pending.
   and stores the verified content bytes in the synthetic fixture boundary.
 - Submit creates an outbox item. `ManagementApp.run_worker()` is an explicit
   synthetic adapter seam with dispatch, leases, attempts, retry/dead-letter
-  outcomes, lifecycle projection, and immutable receipt evidence. It has no
-  network or upstream credentials.
+  outcomes, tenant-scoped backpressure, durable adapter idempotency/reconciliation
+  records, lifecycle projection, and immutable receipt evidence. Submit commits
+  the operation projection and outbox atomically. It has no network or upstream
+  credentials. See `evidence/AGDA-24/README.md`.
 - Receipt retrieval now returns raw synthetic evidence, source code/profile,
   digest, validation time, and immutable marker. The receipt is linked to the
   operation, message event chain, export, and audit hash chain.

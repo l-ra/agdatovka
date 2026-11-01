@@ -140,3 +140,11 @@ decision is still required.
 - **Deferred:** Production persistence/queue/object store, actual public
   endpoint compatibility, performance execution, qualified trust services,
   and release/mirror integration remain approval-gated Phase 3 work.
+# ADR: durable synthetic worker reconciliation (P3-04)
+
+The delivery boundary is a transactional outbox followed by a leased queue.
+The operation and outbox row share the request commit; adapter side effects are
+prepared with a stable per-attempt idempotency key and recorded with synthetic
+evidence before a delivered projection. Tenant and global in-flight limits
+provide explicit backpressure. This keeps pre-submit, post-submit, and
+post-receipt restarts accounted for without claiming external ISDS semantics.
