@@ -259,6 +259,7 @@ class Database:
             self.connection.execute("ALTER TABLE idempotency_keys ADD COLUMN claimed_at TEXT NOT NULL DEFAULT ''")
         if "completed_at" not in idempotency_columns:
             self.connection.execute("ALTER TABLE idempotency_keys ADD COLUMN completed_at TEXT")
+        self.connection.execute("UPDATE idempotency_keys SET claimed_at=created_at WHERE claimed_at=''")
         self._seed_policy()
         self.connection.commit()
 
@@ -525,7 +526,7 @@ class ManagementApp:
             raise Problem(404, "not_found", "Not found", "The requested API resource does not exist.")
         rest = segments[2:]
         if not rest:
-            return 200, {"apiVersion": API_VERSION, "requestId": request_id, "resources": ["boxes", "messages", "operations", "exports", "audit/events"]}
+            return 200, {"apiVersion": API_VERSION, "requestId": request_id, "resources": ["boxes", "messages", "operations", "exports", "retention", "audit/events"]}
         resource = rest[0]
         if resource == "boxes":
             return self._boxes(method, rest[1:], body, actor, request_id, correlation_id, query)

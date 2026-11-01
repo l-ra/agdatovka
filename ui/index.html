@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AG Datovka 2 — synthetic management</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <header>
+    <h1>AG Datovka 2</h1>
+    <p>Management console for the isolated synthetic endpoint.</p>
+  </header>
+  <main>
+    <section aria-labelledby="connection-title">
+      <h2 id="connection-title">Connection</h2>
+      <form id="connection-form">
+        <label for="api-base">API base</label>
+        <input id="api-base" name="api-base" value="http://127.0.0.1:8080/api/v1" required>
+        <label for="token">Synthetic bearer token</label>
+        <input id="token" name="token" value="dev:platform" autocomplete="off" required>
+        <button type="submit">Use endpoint</button>
+      </form>
+      <p id="connection-status" role="status" aria-live="polite">Not connected.</p>
+    </section>
+    <section aria-labelledby="boxes-title">
+      <h2 id="boxes-title">Databoxes</h2>
+      <form id="box-form">
+        <label for="box-name">New box name</label>
+        <input id="box-name" name="box-name" required>
+        <button type="submit">Create box</button>
+      </form>
+      <label for="box-select">Active box</label>
+      <select id="box-select"><option value="">Connect and load boxes</option></select>
+    </section>
+    <section aria-labelledby="message-title">
+      <h2 id="message-title">Message</h2>
+      <form id="message-form">
+        <label for="subject">Subject</label>
+        <input id="subject" name="subject" required>
+        <label for="attachment">Attachment text (synthetic)</label>
+        <textarea id="attachment" name="attachment" rows="4" aria-describedby="attachment-help"></textarea>
+        <p id="attachment-help">The API computes the attachment digest from received bytes.</p>
+        <button type="submit">Create and submit</button>
+      </form>
+    </section>
+    <section aria-labelledby="results-title">
+      <h2 id="results-title">Operations, search, and audit</h2>
+      <button id="refresh" type="button">Refresh selected box</button>
+      <pre id="results" tabindex="0" aria-label="API results">No result yet.</pre>
+    </section>
+  </main>
+  <script src="./app.js" defer></script>
+</body>
+</html>

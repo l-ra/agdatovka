@@ -115,3 +115,28 @@ decision is still required.
   execution.
 - **Evidence:** `evidence/AGDA-21/README.md`, `evidence/AGDA-14/README.md`,
   `evidence/AGDA-13/README.md`, and `main:evidence/AGDA-16/mirror-verification.md`.
+
+## ADR-011 — Phase 3 synthetic functional vertical slice
+
+- **Status:** candidate implementation; specialist review and release gates
+  remain open.
+- **Decision:** Keep the management API and worker seam dependency-free and
+  synthetic, but make received attachment bytes authoritative. The direct
+  fixture uses bounded base64 and the WSGI boundary uses octet-stream; the
+  server computes digest and length, validates declarations, and rejects
+  metadata-only uploads.
+- **Decision:** Claim mutating idempotency keys before routing and persist
+  response state/attempts. Same-body requests replay one durable result;
+  different bodies conflict. The local SQLite fixture serializes the request
+  critical section, while the uniqueness path remains a stable conflict/replay
+  boundary.
+- **Decision:** Submit writes a durable outbox record and returns `queued`.
+  Only the explicit synthetic worker seam may project `delivered` and create a
+  receipt; HTTP acceptance is never upstream delivery evidence.
+- **Decision:** Retention endpoints record policy version, legal holds, and
+  tombstones. Restore verifies manifests, attachment digests, and audit links
+  in a disposable namespace and explicitly prevents blind send replay. This
+  is a reference fixture, not legal policy or compliance certification.
+- **Deferred:** Production persistence/queue/object store, actual public
+  endpoint compatibility, performance execution, qualified trust services,
+  and release/mirror integration remain approval-gated Phase 3 work.

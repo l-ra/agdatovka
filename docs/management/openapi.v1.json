@@ -90,6 +90,19 @@
     },
     "/audit/events": {
       "get": {"tags": ["audit"], "parameters": [{"$ref": "#/components/parameters/BoxQuery"}, {"$ref": "#/components/parameters/Limit"}, {"$ref": "#/components/parameters/Cursor"}], "responses": {"200": {"description": "Hash-linked audit page"}, "403": {"$ref": "#/components/responses/Problem"}}}
+    },
+    "/retention/legal-holds": {
+      "post": {"tags": ["policy"], "requestBody": {"$ref": "#/components/requestBodies/Json"}, "responses": {"201": {"description": "Created legal hold"}, "409": {"$ref": "#/components/responses/Problem"}}}
+    },
+    "/retention/legal-holds/{holdId}": {
+      "parameters": [{"name": "holdId", "in": "path", "required": true, "schema": {"type": "string"}}],
+      "patch": {"tags": ["policy"], "requestBody": {"$ref": "#/components/requestBodies/Json"}, "responses": {"200": {"description": "Released legal hold"}}}
+    },
+    "/retention/deletion-requests": {
+      "post": {"tags": ["policy"], "requestBody": {"$ref": "#/components/requestBodies/Json"}, "responses": {"202": {"description": "Tombstone request accepted"}, "409": {"$ref": "#/components/responses/Problem"}}}
+    },
+    "/retention/restore": {
+      "post": {"tags": ["policy"], "requestBody": {"$ref": "#/components/requestBodies/Json"}, "responses": {"200": {"description": "Synthetic restore verification"}, "422": {"$ref": "#/components/responses/Problem"}}}
     }
   },
   "components": {
