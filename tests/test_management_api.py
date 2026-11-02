@@ -86,6 +86,46 @@ class ManagementApiTest(unittest.TestCase):
         self.assertEqual(status, 422)
         self.assertEqual(problem["code"], "cross_tenant_reference")
 
+    def test_same_tenant_sender_impersonation_is_rejected_and_audited(self):
+        box = self.create_box("Sender authorization box")
+        owner_token = f"dev:{box['id']}:{box['ownerIdentityId']}"
+        status, _, second_identity = self.call(
+            "POST", f"/api/v1/boxes/{box['id']}/identities",
+            {"subject": "second-sender", "displayName": "Second sender"},
+            token=owner_token, key="sender-identity",
+        )
+        self.assertEqual(status, 201)
+
+        # Regression for AGDA-39 F-007: membership alone must not permit the
+        # authenticated owner to forge another active identity as sender.
+        status, _, problem = self.call(
+            "POST", "/api/v1/messages",
+            {"boxId": box["id"], "senderIdentityId": second_identity["id"], "subject": "must reject impersonation"},
+            token=owner_token, key="unauthorized-sender",
+        )
+        self.assertEqual((status, problem["code"]), (403, "sender_identity_forbidden"))
+        self.assertIsNone(self.app.db.one("SELECT id FROM messages WHERE subject=?", ("must reject impersonation",)))
+
+        status, _, audit = self.call("GET", f"/api/v1/audit/events?boxId={box['id']}&limit=100", token=owner_token)
+        self.assertEqual(status, 200)
+        decision = next(item for item in audit["items"] if item["action"] == "message.sender.authorization")
+        self.assertEqual((decision["actor"], decision["outcome"], decision["resourceId"]), (box["ownerIdentityId"], "denied", second_identity["id"]))
+        reason = json.loads(decision["reason"])
+        self.assertEqual(reason, {
+            "authenticatedActorIdentityId": box["ownerIdentityId"],
+            "declaredSenderIdentityId": second_identity["id"],
+            "authorizationDecision": "denied",
+            "authorizationBasis": "actor_identity_binding",
+        })
+
+        # Positive path: an identity may select itself as sender.
+        status, _, message = self.call(
+            "POST", "/api/v1/messages",
+            {"boxId": box["id"], "senderIdentityId": box["ownerIdentityId"], "subject": "allowed sender"},
+            token=owner_token, key="authorized-sender",
+        )
+        self.assertEqual((status, message["senderIdentityId"]), (201, box["ownerIdentityId"]))
+
     def test_cursor_pagination_is_bounded_and_stable(self):
         box = self.create_box("Pagination box")
         for number in range(5):

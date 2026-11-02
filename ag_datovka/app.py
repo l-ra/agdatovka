@@ -862,7 +862,27 @@ class ManagementApp:
             subject = self._required(body, "subject")
             sender_identity_id = body.get("senderIdentityId")
             if sender_identity_id is not None:
-                self._identity_in_box(sender_identity_id, box_id, "senderIdentityId")
+                sender_identity = self._identity_in_box(sender_identity_id, box_id, "senderIdentityId")
+                sender_authorized = actor.platform or actor.subject == sender_identity["id"]
+                sender_decision = "allowed" if sender_authorized else "denied"
+                sender_reason = canonical_json({
+                    "authenticatedActorIdentityId": None if actor.platform else actor.subject,
+                    "declaredSenderIdentityId": sender_identity_id,
+                    "authorizationDecision": sender_decision,
+                    "authorizationBasis": "platform_control_plane" if actor.platform else "actor_identity_binding",
+                })
+                self._audit(actor, "message.sender.authorization", sender_decision, "identity", sender_identity_id, request_id, correlation_id, sender_reason, box_id)
+                if not sender_authorized:
+                    self.db.connection.commit()
+                    raise Problem(403, "sender_identity_forbidden", "Forbidden", "The authenticated identity cannot act as the declared sender identity.")
+            else:
+                sender_reason = canonical_json({
+                    "authenticatedActorIdentityId": None if actor.platform else actor.subject,
+                    "declaredSenderIdentityId": None,
+                    "authorizationDecision": "allowed",
+                    "authorizationBasis": "no_declared_sender",
+                })
+                self._audit(actor, "message.sender.authorization", "allowed", "identity", None, request_id, correlation_id, sender_reason, box_id)
             self.db.connection.execute("INSERT INTO messages VALUES(?,?,?,?,?,?,?,?,?,?)", (message_id, box_id, sender_identity_id, body.get("targetBoxId"), subject, "draft", body.get("contentDigest"), canonical_json({key: value for key, value in body.items() if key not in {"boxId", "subject", "senderIdentityId", "targetBoxId", "contentDigest"}}), at, at))
             self._record_message_event(message_id, "draft_created", None, "ag-v1", None, actor.subject, 0)
             self._audit(actor, "message.created", "allowed", "message", message_id, request_id, correlation_id, None, box_id, body.get("contentDigest"))
