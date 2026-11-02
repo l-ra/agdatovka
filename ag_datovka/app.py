@@ -181,6 +181,13 @@ class Database:
               filename TEXT NOT NULL, media_type TEXT NOT NULL, byte_length INTEGER NOT NULL,
               content_digest TEXT NOT NULL, content_bytes BLOB NOT NULL DEFAULT X'', created_at TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS message_reads (
+              message_id TEXT NOT NULL REFERENCES messages(id),
+              identity_id TEXT NOT NULL REFERENCES identities(id),
+              read_at TEXT,
+              updated_at TEXT NOT NULL,
+              PRIMARY KEY(message_id, identity_id)
+            );
             CREATE TABLE IF NOT EXISTS message_events (
               id TEXT PRIMARY KEY, message_id TEXT NOT NULL REFERENCES messages(id),
               event_type TEXT NOT NULL, source_code TEXT, source_profile TEXT,
@@ -409,6 +416,8 @@ class ManagementApp:
         split = urlsplit(path)
         request_id = headers.get("x-request-id") or headers.get("correlation-id") or new_id("req")
         correlation_id = headers.get("correlation-id") or request_id
+        if method.upper() == "GET" and split.path in {"/health/live", "/health/ready"}:
+            return self._health(split.path, request_id)
         actor: Actor | None = None
         try:
             actor = self._authenticate(headers)
@@ -490,6 +499,18 @@ class ManagementApp:
             self.db.connection.commit()
         return status, {"content-type": "application/json", "x-request-id": request_id}, response_json.encode("utf-8")
 
+    def _health(self, path: str, request_id: str) -> tuple[int, dict[str, str], bytes]:
+        if path == "/health/live":
+            payload = {"status": "ok", "check": "liveness", "requestId": request_id}
+            return 200, {"content-type": "application/json", "x-request-id": request_id}, canonical_json(payload).encode("utf-8")
+        try:
+            self.db.one("SELECT 1")
+            payload = {"status": "ok", "check": "readiness", "database": "ok", "requestId": request_id}
+            return 200, {"content-type": "application/json", "x-request-id": request_id}, canonical_json(payload).encode("utf-8")
+        except sqlite3.Error:
+            payload = {"status": "unavailable", "check": "readiness", "database": "unavailable", "requestId": request_id}
+            return 503, {"content-type": "application/json", "x-request-id": request_id}, canonical_json(payload).encode("utf-8")
+
     def _problem(
         self, status: int, code: str, title: str, detail: str, request_id: str,
         retryable: bool = False, field_errors: list[dict[str, str]] | None = None,
@@ -566,6 +587,8 @@ class ManagementApp:
         if not rest:
             return 200, {"apiVersion": API_VERSION, "requestId": request_id, "resources": ["boxes", "messages", "operations", "exports", "retention", "audit/events"]}
         resource = rest[0]
+        if resource == "session":
+            return self._session(method, rest[1:], actor, request_id)
         if resource == "boxes":
             return self._boxes(method, rest[1:], body, actor, request_id, correlation_id, query)
         if resource == "identities":
@@ -856,7 +879,30 @@ class ManagementApp:
         box_id = message["box_id"]
         if len(rest) == 1 and method == "GET":
             self._require(actor, "message:read", box_id)
-            return 200, {**self._message_json(message), "requestId": request_id}
+            result = {**self._message_json(message), "requestId": request_id}
+            if not actor.platform:
+                read = self.db.one("SELECT read_at FROM message_reads WHERE message_id=? AND identity_id=?", (message_id, actor.subject))
+                result["readAt"] = read["read_at"] if read else None
+            return 200, result
+        if len(rest) == 2 and rest[1] == "read" and method == "PATCH":
+            self._require(actor, "message:read", box_id)
+            if actor.platform:
+                raise Problem(403, "identity_required", "Identity required", "Read state must be recorded for a box identity.")
+            read_value = body.get("read", True)
+            if not isinstance(read_value, bool):
+                raise Problem(422, "invalid_field", "Invalid field", "read must be a boolean.", field_errors=[{"field": "read", "code": "boolean_required"}])
+            at = now_iso()
+            self.db.connection.execute(
+                "INSERT INTO message_reads(message_id,identity_id,read_at,updated_at) VALUES(?,?,?,?) ON CONFLICT(message_id,identity_id) DO UPDATE SET read_at=excluded.read_at,updated_at=excluded.updated_at",
+                (message_id, actor.subject, at if read_value else None, at),
+            )
+            self._audit(actor, "message.read_state.changed", "allowed", "message", message_id, request_id, correlation_id, None, box_id)
+            self.db.connection.commit()
+            return 200, {"messageId": message_id, "identityId": actor.subject, "read": read_value, "readAt": at if read_value else None, "requestId": request_id}
+        if len(rest) == 2 and rest[1] == "attachments" and method == "GET":
+            self._require(actor, "message:read", box_id)
+            rows = self.db.all("SELECT * FROM attachments WHERE message_id=? ORDER BY created_at, id", (message_id,))
+            return 200, {"items": [self._attachment_json(row) for row in rows], "requestId": request_id}
         if len(rest) == 2 and rest[1] == "attachments" and method == "POST":
             self._require(actor, "message:create", box_id)
             content, filename, media_type, expected_length, expected_digest = self._attachment_input(body, headers)
@@ -895,6 +941,12 @@ class ManagementApp:
             self._require(actor, "message:read", box_id)
             rows = self.db.all("SELECT * FROM message_events WHERE message_id=? ORDER BY occurred_at, id", (message_id,))
             return 200, {"items": [self._message_event_json(row) for row in rows], "nextCursor": None, "requestId": request_id}
+        if len(rest) == 3 and rest[1] == "attachments" and method == "GET":
+            self._require(actor, "message:read", box_id)
+            attachment = self.db.one("SELECT * FROM attachments WHERE id=? AND message_id=?", (rest[2], message_id))
+            if not attachment:
+                raise Problem(404, "not_found", "Not found", "The requested attachment does not exist.")
+            return 200, {**self._attachment_json(attachment), "contentBase64": base64.b64encode(bytes(attachment["content_bytes"])).decode("ascii"), "requestId": request_id}
         if len(rest) == 3 and rest[1] == "receipts" and method == "GET":
             self._require(actor, "receipt:read", box_id)
             receipt = self.db.one("SELECT * FROM receipts WHERE id=? AND message_id=?", (rest[2], message_id))
@@ -1198,6 +1250,10 @@ class ManagementApp:
             sql += " AND (id LIKE ? OR subject LIKE ? OR status LIKE ? OR target_box_id LIKE ?)"
             needle = f"%{text}%"
             params.extend([needle] * 4)
+        status = (query.get("status") or [""])[0]
+        if status:
+            sql += " AND status=?"
+            params.append(status)
         if cursor:
             sql += " AND (created_at < ? OR (created_at = ? AND id < ?))"
             params.extend([cursor["createdAt"], cursor["createdAt"], cursor["id"]])
@@ -1207,6 +1263,16 @@ class ManagementApp:
         page = rows[:limit]
         next_cursor = cursor_encode({"createdAt": page[-1]["created_at"], "id": page[-1]["id"]}) if len(rows) > limit and page else None
         return 200, {"items": [self._message_json(row) for row in page], "nextCursor": next_cursor, "requestId": request_id}
+
+    def _session(self, method: str, rest: list[str], actor: Actor, request_id: str) -> tuple[int, dict[str, Any]]:
+        if method != "GET" or rest:
+            raise Problem(405, "method_not_allowed", "Method not allowed", "Only GET is supported for the session resource.")
+        if actor.platform:
+            return 200, {"authenticated": True, "subject": actor.subject, "tenant": None, "identity": None, "requestId": request_id}
+        identity = self.db.one("SELECT * FROM identities WHERE id=?", (actor.subject,))
+        if not identity:
+            raise Problem(401, "identity_binding_failed", "Authentication failed", "The authenticated identity is no longer active.")
+        return 200, {"authenticated": True, "subject": identity["subject"], "tenant": identity["box_id"], "identity": self._identity_json(identity), "requestId": request_id}
 
     def _require(self, actor: Actor, permission: str, box_id: str | None) -> None:
         if actor.platform:

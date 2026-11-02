@@ -7,13 +7,17 @@ authorize production release or real-data access.
 
 1. Confirm the branch contains source, tests/fixtures, requirements,
    evidence/decision updates, and a sanitized public report.
-2. Run contract, unit, security, secret-scan, compatibility, and documentation
+2. Apply the versioned relational migrations from `migrations/` with the
+   approved migration runner. Record the migration identifier and checksum in
+   the release manifest; never create a production schema by importing the
+   SQLite fixture.
+3. Run contract, unit, security, secret-scan, compatibility, and documentation
    checks. Performance scenarios are checked for completeness but not executed.
-3. Confirm the exact commit and source URLs are pushed to the GitHub mirror.
-4. Hand the task to the Release Integration Engineer. Only that role performs
+4. Confirm the exact commit and source URLs are pushed to the GitHub mirror.
+5. Hand the task to the Release Integration Engineer. Only that role performs
    the local `git merge --no-ff` into the integration checkout, preserving
    branch provenance. The implementation owner does not merge their own branch.
-5. Record merge commit, source commit, test commands/results, work-product
+6. Record merge commit, source commit, test commands/results, work-product
    links, and mirror verification in the Paperclip task.
 6. A release outside a synthetic/test environment requires the appropriate
    security/legal/board gates and is a separate task.
@@ -30,7 +34,7 @@ contain tokens, private keys, personal data, or full message bodies.
 
 1. Quiesce new work or record a consistent snapshot boundary; do not stop
    workers without accounting for leases and outbox records.
-2. Export encrypted metadata, content manifest, immutable events, trust profile
+2. Export encrypted relational metadata, content manifests, immutable events, trust profile
    metadata, and policy versions. Secrets are referenced by secret-store IDs,
    never exported as values.
 3. Verify checksums and record the manifest before copying to the backup store.
