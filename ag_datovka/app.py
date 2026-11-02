@@ -24,6 +24,7 @@ from typing import Any, Iterable, Mapping
 from urllib.parse import parse_qs, urlencode, urlsplit
 
 from .pipeline import DurablePipeline
+from .isds_adapter import AdapterError, IsdsCompatibilityAdapter
 from .security import TrustError, TrustProfile, secret_handle, validate_endpoint, validate_signed_oidc
 
 
@@ -199,7 +200,8 @@ class Database:
               id TEXT PRIMARY KEY, box_id TEXT NOT NULL REFERENCES boxes(id),
               message_id TEXT, kind TEXT NOT NULL, status TEXT NOT NULL,
               attempts INTEGER NOT NULL, retryable INTEGER NOT NULL, request_json TEXT NOT NULL,
-              created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+              created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+              recipient_message_id TEXT
             );
             CREATE TABLE IF NOT EXISTS exports (
               id TEXT PRIMARY KEY, box_id TEXT NOT NULL REFERENCES boxes(id),
@@ -285,6 +287,9 @@ class Database:
             self.connection.execute("ALTER TABLE idempotency_keys ADD COLUMN claimed_at TEXT NOT NULL DEFAULT ''")
         if "completed_at" not in idempotency_columns:
             self.connection.execute("ALTER TABLE idempotency_keys ADD COLUMN completed_at TEXT")
+        operation_columns = {row["name"] for row in self.connection.execute("PRAGMA table_info(operations)").fetchall()}
+        if "recipient_message_id" not in operation_columns:
+            self.connection.execute("ALTER TABLE operations ADD COLUMN recipient_message_id TEXT")
         self.connection.execute("UPDATE idempotency_keys SET claimed_at=created_at WHERE claimed_at=''")
         self._seed_policy()
         self.connection.commit()
@@ -927,7 +932,7 @@ class ManagementApp:
             operation_id = new_id("op")
             at = now_iso()
             operation_request = {"messageId": message_id, "tenantId": box_id, **body}
-            self.db.connection.execute("INSERT INTO operations VALUES(?,?,?,?,?,?,?,?,?,?)", (operation_id, box_id, message_id, "message.submit", "queued", 0, 1, canonical_json(operation_request), at, at))
+            self.db.connection.execute("INSERT INTO operations(id,box_id,message_id,kind,status,attempts,retryable,request_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)", (operation_id, box_id, message_id, "message.submit", "queued", 0, 1, canonical_json(operation_request), at, at))
             self.db.connection.execute("UPDATE messages SET status='queued', updated_at=? WHERE id=?", (at, message_id))
             self._record_message_event(message_id, "queued", None, "ag-v1", None, actor.subject, 0)
             # Keep the operation row, message projection, audit event, and
@@ -1077,19 +1082,57 @@ class ManagementApp:
             receipt_digest = digest(raw_xml)
             at = now_iso()
             if not existing_receipt:
-                self.db.connection.execute("UPDATE operations SET status='delivered', retryable=0, updated_at=? WHERE id=?", (at, item.operation_id))
-                self.db.connection.execute("UPDATE messages SET status='delivered', updated_at=? WHERE id=?", (at, operation["message_id"]))
-                event_id = self._record_message_event(operation["message_id"], "delivered", "EV3", "ag-synthetic-v1", None, "synthetic-worker", attempt)
-                validation = {"validator": "ag-isds-adapter-v1", "status": "passed", "signature": "not_present", "chain": "not_present", "error": None}
+                try:
+                    receipt_event = IsdsCompatibilityAdapter().parse_receipt(raw_xml)
+                except AdapterError as error:
+                    self.pipeline.record_side_effect(item, state="failed", evidence=evidence, adapter_status=error.code)
+                    self.pipeline.fail(item, error.code)
+                    raise RuntimeError(f"synthetic receipt validation failed: {error.code}") from error
+                validation = dict(receipt_event.data["validation"])
+                event_id = self._record_message_event(operation["message_id"], "delivered", "EV3", receipt_event.source_profile, None, "synthetic-worker", attempt)
                 audit_event_id = self._audit(Actor("synthetic-worker", operation["box_id"]), "receipt.validated", "allowed", "receipt", receipt_id, new_id("req"), new_id("corr"), None, operation["box_id"], receipt_digest)
                 self.db.connection.execute("INSERT INTO receipts(id,message_id,operation_id,status,source_code,source_profile,raw_digest,raw_xml,raw_bytes,validation_json,event_id,audit_event_id,validated_at,immutable) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,1)", (receipt_id, operation["message_id"], item.operation_id, "delivered", "EV3", "ag-synthetic-v1", receipt_digest, raw_xml.decode("utf-8"), raw_xml, canonical_json(validation), event_id, audit_event_id, at))
                 self.db.connection.commit()
+            # The receipt is the delivery gate: only evidence already persisted
+            # by the adapter may cause either sender or recipient projections to
+            # enter delivered state.
+            self.db.connection.execute("UPDATE operations SET status='delivered', retryable=0, updated_at=? WHERE id=?", (at, item.operation_id))
+            self.db.connection.execute("UPDATE messages SET status='delivered', updated_at=? WHERE id=?", (at, operation["message_id"]))
+            self._project_recipient_inbox(operation, attempt, at)
             if crash_at == "post-receipt":
                 raise RuntimeError("synthetic worker crash after receipt persistence")
             self.pipeline.record_side_effect(item, state="reconciled", evidence={**evidence, "receiptId": receipt_id}, adapter_status="delivered")
             self.pipeline.complete(item)
             results.append({"operationId": item.operation_id, "status": "delivered", "receiptId": receipt_id})
         return results
+
+    def _project_recipient_inbox(self, operation: sqlite3.Row, attempt: int, at: str) -> None:
+        """Create the local recipient inbox projection after receipt evidence."""
+        request = json.loads(operation["request_json"])
+        target_box_id = request.get("targetBoxId")
+        if not target_box_id or target_box_id == operation["box_id"]:
+            return
+        target_box = self.db.one("SELECT id FROM boxes WHERE id=?", (target_box_id,))
+        if not target_box:
+            return
+        existing = self.db.one("SELECT recipient_message_id FROM operations WHERE id=?", (operation["id"],))
+        if existing and existing["recipient_message_id"]:
+            return
+        source = self.db.one("SELECT * FROM messages WHERE id=?", (operation["message_id"],))
+        recipient_id = new_id("msg")
+        metadata = json.loads(source["metadata_json"])
+        metadata.update({"received": True, "sourceMessageId": source["id"], "deliveryAttempt": attempt})
+        self.db.connection.execute(
+            "INSERT INTO messages VALUES(?,?,?,?,?,?,?,?,?,?)",
+            (recipient_id, target_box_id, source["sender_identity_id"], operation["box_id"], source["subject"], "delivered", source["content_digest"], canonical_json(metadata), at, at),
+        )
+        self._record_message_event(recipient_id, "received", "EV3", "ag-synthetic-v1", None, "synthetic-worker", attempt)
+        for attachment in self.db.all("SELECT * FROM attachments WHERE message_id=? ORDER BY created_at, id", (source["id"],)):
+            self.db.connection.execute(
+                "INSERT INTO attachments(id,message_id,filename,media_type,byte_length,content_digest,content_bytes,created_at) VALUES(?,?,?,?,?,?,?,?)",
+                (new_id("att"), recipient_id, attachment["filename"], attachment["media_type"], attachment["byte_length"], attachment["content_digest"], attachment["content_bytes"], at),
+            )
+        self.db.connection.execute("UPDATE operations SET recipient_message_id=? WHERE id=?", (recipient_id, operation["id"]))
 
     def _operations(self, method: str, rest: list[str], body: dict[str, Any], actor: Actor, request_id: str, correlation_id: str) -> tuple[int, dict[str, Any]]:
         if len(rest) not in {1, 2}:
@@ -1398,7 +1441,7 @@ class ManagementApp:
 
     @staticmethod
     def _operation_json(row: sqlite3.Row) -> dict[str, Any]:
-        return {"id": row["id"], "boxId": row["box_id"], "messageId": row["message_id"], "kind": row["kind"], "status": row["status"], "attempts": row["attempts"], "retryable": bool(row["retryable"]), "request": json.loads(row["request_json"]), "createdAt": row["created_at"], "updatedAt": row["updated_at"]}
+        return {"id": row["id"], "boxId": row["box_id"], "messageId": row["message_id"], "recipientMessageId": row["recipient_message_id"], "kind": row["kind"], "status": row["status"], "attempts": row["attempts"], "retryable": bool(row["retryable"]), "request": json.loads(row["request_json"]), "createdAt": row["created_at"], "updatedAt": row["updated_at"]}
 
     @staticmethod
     def _export_json(row: sqlite3.Row) -> dict[str, Any]:
