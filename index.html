@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="cs">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>AG Datovka 2 — foundation milestone</title>
+  <title>AG Datovka 2 — Phase 4 verified integration</title>
   <style>
     :root { color-scheme: light; font: 16px/1.6 system-ui, sans-serif; }
     body { max-width: 58rem; margin: 0 auto; padding: 2rem 1rem 4rem; color: #202124; }
@@ -15,39 +15,19 @@
 <body>
   <main>
     <h1>AG Datovka 2</h1>
-    <p class="note">Milník Phase 2 navazuje na základ projektu a shrnuje ověřenou integraci, bezpečnostní omezení a odložené měření výkonu. Nejde o produkční release.</p>
-    <h2>Co se změnilo</h2>
-    <p>Commit <a href="https://github.com/l-ra/agdatovka/commit/111597ade20188581515939177251a8f2c3ff4af"><code>111597a</code></a> doplnil požadavky a jejich dohledatelnost, cílovou architekturu, správní API, hranice důvěry, datové toky, pravidla obnovy a vydání a plán kompatibility s Datovkou CZ.NIC.</p>
-    <h2>Co je potvrzeno</h2>
+    <p class="note">Phase 4 integration is verified for a synthetic/offline scope. It is not a production release or production-readiness declaration.</p>
+    <h2>Verified</h2>
     <ul>
-      <li>Dokumenty jsou verzované a vzájemně provázané.</li>
-      <li>Zdrojový registr odkazuje na oficiální ISDS/CZ.NIC stránky, standardy a právní zdroje EU.</li>
-      <li>Správní API a architektura jsou specifikované pro plánování implementace.</li>
-      <li>Výkonové scénáře zahrnují budoucí profil 1&nbsp;000 zpráv za minutu a velké zprávy; měření je stále odložené.</li>
-      <li>Tenant-isolation remediation is verified; the independent review still retains an adverse release verdict outside synthetic scope.</li>
-      <li>Offline synthetic compatibility/conformance is marked PASS for its checked-in scope; live interoperability is not claimed.</li>
-      <li>Performance scenarios are ready for a future approved run, but performance is not measured.</li>
-      <li><a href="reporting/2026-11-01-phase2-release-readiness.md">Read the Phase 2 release-readiness milestone</a>.</li>
+      <li><strong>69 tests passed</strong>, including synthetic workflow, health, security, integrity, UI, and runtime-boundary checks.</li>
+      <li>Exact evidence source: <a href="https://github.com/l-ra/agdatovka/commit/3660a354d59f6801c883df8592717481e6b6e264"><code>3660a35</code></a>.</li>
+      <li><a href="reporting/2026-11-02-agda42-phase4.md">Read the full Phase 4 milestone report</a>.</li>
     </ul>
-    <h2>Co potvrzeno není</h2>
-    <ul>
-      <li>Nejde o tvrzení, že existuje serverová implementace, veřejné nasazení, výkonnostní výsledek, právní stanovisko nebo produkční interoperabilita.</li>
-      <li>WSDL/XSD balíček ISDS, syntetické přípravky a nezávislé bezpečnostní/QA přezkoumání zůstávají otevřené.</li>
-      <li>Migrace existujících dat je mimo rozsah; používají se pouze syntetická testovací data.</li>
-    </ul>
-    <h2>Faktické vyjádření odpovědného agenta</h2>
-    <blockquote>„Milník zachycuje zdrojově podložené požadavky, návrh rozhraní a architektury; implementace a interoperabilita jsou další ověřované kroky.“</blockquote>
-    <p><small>Agent statement — shrnutí obsahu commitu <a href="https://github.com/l-ra/agdatovka/commit/111597ade20188581515939177251a8f2c3ff4af"><code>111597a</code></a> od autora foundation baseline; nejde o tvrzení nad rámec tohoto commitu.</small></p>
-    <h2>Zdrojové podklady</h2>
-    <p><a href="https://github.com/l-ra/agdatovka/blob/111597ade20188581515939177251a8f2c3ff4af/reporting/2026-10-30-foundation.md">Úplný report</a> · <a href="https://github.com/l-ra/agdatovka/tree/111597ade20188581515939177251a8f2c3ff4af/docs/requirements">požadavky a zdroje</a> · <a href="https://github.com/l-ra/agdatovka/tree/111597ade20188581515939177251a8f2c3ff4af/docs/architecture">architektura</a> · <a href="https://github.com/l-ra/agdatovka/tree/111597ade20188581515939177251a8f2c3ff4af/docs/testing">testovací scénáře</a></p>
-    <h2>Další ověřitelné kroky</h2>
-    <ul>
-      <li>Implementovat správní API, model oprávnění, auditní události a deterministické testy.</li>
-      <li>Implementovat streamování obsahu, outbox a pipeline operací zpráv.</li>
-      <li>Připnout ISDS testovací profil a připravit SOAP/WSDL, účtenky, trust a lifecycle fixtures.</li>
-      <li>Provést nezávislý threat-model, conformance a red-team review před vydáním mimo syntetické prostředí.</li>
-    </ul>
-    <footer>Report je generovaný z verzovaných podkladů projektu. Zveřejněno z větve <code>reporting</code>; technické podklady jsou v hlavní větvi repozitáře.</footer>
+    <h2>Not yet verified</h2>
+    <p>Performance/load execution, Docker and Compose gates, image/SBOM/scanner evidence, deploy-profile backup/restore, provider interoperability, HA recovery, legal/compliance assessment, and production certification remain open. Migration remains out of scope. Only synthetic fixtures and redacted manifests were used.</p>
+    <h2>Agent statements</h2>
+    <blockquote>“The dependency-free release matrix and clean archive checks pass for the synthetic scope; container and performance gates still require a separately equipped integration environment.”</blockquote>
+    <p><small>Release Integration Agent — statement grounded in the AGDA-40 evidence.</small></p>
+    <footer>Published from the <code>reporting</code> branch; source and evidence links point to the exact verified commit.</footer>
   </main>
 </body>
 </html>
