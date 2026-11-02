@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import base64
 import json
+import os
 import sys
 import tempfile
 import subprocess
@@ -20,6 +21,21 @@ from ag_datovka.app import create_app  # noqa: E402
 
 def now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def candidate_commit() -> str:
+    """Return provenance without requiring the source bundle to contain .git."""
+    explicit = os.environ.get("AG_COMMIT", "").strip()
+    if explicit:
+        return explicit
+    try:
+        return subprocess.check_output(
+            ["git", "-C", str(ROOT), "rev-parse", "HEAD"],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+    except (OSError, subprocess.CalledProcessError):
+        return "archive-source"
 
 
 def main() -> int:
@@ -68,7 +84,7 @@ def main() -> int:
                 "status": "pass",
                 "profile": "ag-synthetic",
                 "upstreamCommit": "67f1f23056e6f96e4a93632c11418a8ce8ca0b2f",
-                "agCommit": subprocess.check_output(["git", "-C", str(ROOT), "rev-parse", "HEAD"], text=True).strip(),
+                "agCommit": candidate_commit(),
                 "endpoint": "http://127.0.0.1:0/api/v1 (in-process isolated fixture)",
                 "fixtureIds": [fixture_id, "synthetic-recipient-box"],
                 "workflow": ["login/configuration", "send", "retrieve", "lifecycle/receipt", "search", "export"],
