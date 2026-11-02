@@ -38,6 +38,31 @@
         <div class="wide"><label for="attachment">Attachment text</label><textarea id="attachment" rows="4" aria-describedby="attachment-help"></textarea><p id="attachment-help" class="hint">The API computes the digest and byte length from received bytes.</p></div><div class="form-actions"><button type="submit">Create, attach, and submit</button></div>
       </form>
     </section>
+    <section class="panel" aria-labelledby="policy-title">
+      <h2 id="policy-title">Trust, endpoints, and retention</h2>
+      <p class="hint">Platform profile changes require the platform bearer token. Retention actions are synthetic evidence only.</p>
+      <form id="profile-form" class="form-grid">
+        <div><label for="trust-name">Trust profile name</label><input id="trust-name" value="ui-synthetic-root" required></div>
+        <div><label for="trust-anchor">Anchor fingerprint</label><input id="trust-anchor" value="sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" pattern="sha256:[a-f0-9]{64}" required></div>
+        <div><label for="endpoint-host">Endpoint hostname</label><input id="endpoint-host" value="isds.synthetic.test" required></div>
+        <div class="form-actions"><button type="submit">Save synthetic profiles</button></div>
+      </form>
+      <form id="hold-form" class="form-grid">
+        <div><label for="hold-resource">Held resource ID</label><input id="hold-resource" required></div>
+        <div><label for="hold-reason">Legal hold reason</label><input id="hold-reason" required></div>
+        <div class="form-actions"><button type="submit">Create legal hold</button></div>
+      </form>
+      <form id="retention-form" class="form-grid">
+        <div><label for="retention-resource">Deletion resource ID</label><input id="retention-resource" required></div>
+        <div><label for="retention-export">Restore export ID</label><input id="retention-export" placeholder="optional"></div>
+        <div class="form-actions"><button type="submit">Apply retention action</button></div>
+      </form>
+    </section>
+    <section class="panel" aria-labelledby="evidence-title">
+      <h2 id="evidence-title">Receipts and health</h2>
+      <form id="receipt-form" class="inline-form"><label for="receipt-message">Message ID</label><input id="receipt-message" required><label for="receipt-id">Receipt ID</label><input id="receipt-id" required><button type="submit">View receipt</button></form>
+      <button id="health" type="button" class="secondary">Check API health</button>
+    </section>
     <section class="panel" aria-labelledby="results-title">
       <h2 id="results-title">Operations, search, and audit</h2>
       <form id="search-form" class="inline-form"><label for="search-text">Search messages</label><input id="search-text" placeholder="subject, status, or ID"><button type="submit">Search</button><button id="refresh" type="button" class="secondary">Refresh selected box</button></form>

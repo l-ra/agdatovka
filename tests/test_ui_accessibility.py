@@ -37,8 +37,9 @@ class AccessibleManagementUiTest(unittest.TestCase):
         self.assertIn('.focus()', self.js)
 
     def test_required_vertical_slice_actions_are_wired(self):
-        for endpoint in ('/boxes', '/identities', '/members/', '/messages', '/attachments', '/submit', '/operations/', '/events', '/exports', '/audit/events'):
+        for endpoint in ('/boxes', '/identities', '/members/', '/messages', '/attachments', '/submit', '/operations/', '/events', '/exports', '/audit/events', '/trust-profiles', '/endpoint-profiles', '/retention/legal-holds', '/retention/deletion-requests', '/retention/restore', '/receipts/'):
             self.assertIn(endpoint, self.js)
+        self.assertIn('request("")', self.js)
         self.assertIn('Idempotency-Key', self.js)
         self.assertIn('fieldErrors', self.js)
         self.assertNotRegex(self.js, r'innerHTML|document\.write')
