@@ -1,15 +1,17 @@
 # AGDA-39 / AGDA-33 P4-06R — independent red-team release review
 
 **Review date:** 2026-11-02  
-**Candidate reviewed:** `d77113e` (`AGDA-38` synthetic send/receive vertical slice)  
+**Candidate reviewed:** `8f85624` (F-007 sender-identity authorization remediation on `d77113e`)
 **Reviewer:** Independent Review and Red Team
 
 ## Disposition
 
-**BLOCKED for release beyond the isolated synthetic fixture.** F-007 remains a
-high-severity authorization finding: an authenticated tenant principal can
-claim another active identity in the same tenant as the message sender. This
-can forge message provenance and sender attribution.
+**No release-blocking finding identified in the covered synthetic boundary.**
+The prior F-007 high-severity authorization finding was independently
+re-tested after remediation and is closed for this API path. An authenticated
+tenant principal claiming another active same-tenant identity now receives a
+non-leaking HTTP 403, no message row is created, and the denial is audit
+recorded with authenticated and declared identity ids.
 
 The signed-token enforcement finding F-008 is closed in this candidate for the
 covered API path. No additional hidden high-severity finding was identified
@@ -27,12 +29,12 @@ Commands run from the repository root:
 python3 -m unittest discover -v
 ```
 
-Result: **68 tests passed**. The suite covers the signed-token, revocation,
+Result: **69 tests passed**. The suite covers the signed-token, revocation,
 tenant-binding, RBAC, secret redaction, production-host fixture scan,
 attachment byte/digest/size checks, receipt integrity, delivered projection,
 idempotency/recovery, pipeline leases, and non-root runtime assertions.
 
-The focused F-007 reproduction created a box, created a second active identity,
+The focused F-007 regression created a box, created a second active identity,
 then authenticated as the owner and submitted:
 
 ```json
@@ -43,11 +45,11 @@ then authenticated as the owner and submitted:
 }
 ```
 
-The response was **HTTP 201** and persisted the second identity as
-`senderIdentityId`. The relevant implementation is
-`ag_datovka/app.py::_messages` calling `_identity_in_box`, which verifies only
-same-box active membership. It does not verify that the authenticated actor is
-the selected identity or has an explicit delegated-send permission.
+The response is now **HTTP 403** with code `sender_identity_forbidden`; no
+message row is persisted. The authorization decision audit event records the
+authenticated actor, declared sender, denial, and `actor_identity_binding`
+basis. The positive self-send path remains **HTTP 201**. Platform control-plane
+send remains an explicit, auditable bypass in the synthetic fixture.
 
 F-008 checks passed independently in `tests/test_oidc_security.py`: unsigned
 OIDC-shaped tokens are rejected; compact signed tokens require the configured
@@ -66,13 +68,14 @@ was claimed or performed.
 
 | ID | Severity | Status | Owner | Acceptance criteria |
 | --- | --- | --- | --- | --- |
-| F-007 | High / release blocker | Reopened; not closed | Backend Management / Security | Require the authenticated actor to equal the selected sender identity, or require a narrowly scoped, auditable delegated-send grant. Unauthorized same-tenant sender references must return non-leaking `403`/`422`; the audit record must identify the authenticated and acting identities. Add a negative regression covering owner/operator claiming another active identity. |
+| F-007 | High / release blocker | Closed for covered synthetic API path | Backend Management / Security | Remediated in `8f85624`; actor identity binding, non-leaking 403, no-row assertion, audit assertion, and positive self-send regression are present in `tests/test_management_api.py`. |
 | F-008 | High | Closed for covered synthetic API path | Identity / Security | Signed-token validation and tenant/subject binding are enforced; unsigned legacy tokens are unavailable in deploy/production profiles; revocation is checked. External IdP/JWKS and provider certification remain deployment work. |
 
 ## Release handoff
 
-This review deliberately does not self-approve implementation. Release
-integration must remain blocked until F-007 has an independently reviewable
-fix and regression evidence. Review artifact: this file; candidate commit:
-`d77113e`.
-
+This review deliberately does not self-approve implementation. The covered
+synthetic boundary has no remaining high-severity blocker, but this is not a
+production certification: external IdP/JWKS, external provider behavior,
+HA/multi-process recovery, legal compliance, and performance execution remain
+outside this evidence. Review artifact: this file; remediation commit:
+`8f85624`; prior candidate: `d77113e`.
