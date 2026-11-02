@@ -28,7 +28,8 @@ load-generation path.
 | `qa/performance_readiness.py` | Deterministic local validator; does not execute load |
 | `qa/fixtures.json` | Synthetic profile and deterministic seed `20261030` |
 | `docs/testing/PERFORMANCE-SCENARIOS.md` | Human-readable scenario summary |
-| `docs/testing/PERFORMANCE-THRESHOLDS.json` | Existing deferred threshold gate |
+| `docs/testing/PERFORMANCE-THRESHOLDS.json` | Numeric QA proposal with explicit deferred execution gate |
+| `docs/testing/PERFORMANCE-THRESHOLD-DECISION-LOG.md` | QA threshold proposal, rationale, approval state, and abort conditions |
 
 ## Acceptance record
 
@@ -44,8 +45,10 @@ load-generation path.
   seed, counts, latency histograms, queue/resource metrics, checksums, and
   cleanup proof.
 - SLO hypotheses: accepted rate must sustain at least 1,000/minute; lost and
-  duplicate operations are zero; p99 latency, error rate, queue drain,
-  memory, retry budget, scaling, and telemetry overhead are agreed before an
-  approved run and recorded with the result.
+  duplicate operations are zero; the QA proposal is p99 admission latency
+  ≤750ms, unexpected error rate ≤1%, queue drain ≤15 minutes, worker memory
+  ≤512MiB, retry attempts ≤5 per operation, and telemetry CPU overhead ≤15%
+  with zero dropped required events. These values remain unapproved until
+  Architecture records its decision before an approved run.
 - Result today: readiness validation passed; performance execution is
   intentionally deferred and no performance result is asserted.

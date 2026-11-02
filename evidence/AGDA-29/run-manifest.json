@@ -1,0 +1,43 @@
+{
+  "agCommit": "5c9652cc66fbdc9e0a35d987a1d89e296975da5a",
+  "endpoint": "http://127.0.0.1:0/api/v1 (in-process isolated fixture)",
+  "exportManifestDigest": "sha256:7a14fb9884fa47ed79e18aeb2bf3a0b9520eb1c297e4c36f00d8c26aeea309d9",
+  "exportStatus": "completed",
+  "fixtureIds": [
+    "ag-synthetic-workflow-001",
+    "synthetic-recipient-box"
+  ],
+  "lifecycleEvents": [
+    "draft_created",
+    "queued",
+    "submitting",
+    "delivered"
+  ],
+  "messageStatus": "delivered",
+  "profile": "ag-synthetic",
+  "receiptStatus": "delivered",
+  "receiptValidation": {
+    "chain": "not_present",
+    "error": null,
+    "signature": "not_present",
+    "status": "passed",
+    "validator": "ag-isds-adapter-v1"
+  },
+  "redaction": "IDs, content, credentials, and private key material are excluded from this manifest.",
+  "schema": "agdatovka.datovka-fork-run.v1",
+  "searchMatches": 1,
+  "status": "pass",
+  "timestamps": {
+    "finishedAt": "2026-11-01T22:46:13Z",
+    "startedAt": "2026-11-01T22:46:13Z"
+  },
+  "upstreamCommit": "67f1f23056e6f96e4a93632c11418a8ce8ca0b2f",
+  "workflow": [
+    "login/configuration",
+    "send",
+    "retrieve",
+    "lifecycle/receipt",
+    "search",
+    "export"
+  ]
+}

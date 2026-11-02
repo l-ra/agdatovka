@@ -7,8 +7,10 @@ codes, receipts, and upstream errors to append-only `DomainEvent` values.
 
 The source profile is `isds-reference-2026-06-26`; its checksums and URLs are in
 the [source manifest](ISDS-SOURCE-MANIFEST.json). Raw receipt bytes are never
-replaced by normalized fields: the event carries byte length and SHA-256, and
-exports are derived copies. The adapter has no network client and accepts no
+replaced by normalized fields: the event carries byte length, base64 raw
+evidence, SHA-256, and validation metadata, and exports are derived copies.
+Signature, certificate-chain, and declared upstream-error failures are
+rejected closed. The adapter has no network client and accepts no
 credentials, so existing callers can adopt it without a migration or endpoint
 change. A future transport must provide the same synthetic payload shapes.
 

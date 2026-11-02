@@ -34,6 +34,17 @@ class PerformanceReadinessTest(unittest.TestCase):
             self.assertIn(expected, names)
         self.assertEqual(manifest["target"]["acceptedMessagesPerMinute"], 1000)
 
+    def test_threshold_decision_is_numeric_but_execution_remains_deferred(self):
+        thresholds = json.loads((ROOT / "docs" / "testing" / "PERFORMANCE-THRESHOLDS.json").read_text())
+        self.assertEqual(thresholds["status"], "deferred")
+        self.assertEqual(thresholds["thresholds"]["p99AdmissionLatencyMaximumMs"], 750)
+        self.assertEqual(thresholds["thresholds"]["errorRateMaximumPercent"], 1.0)
+        self.assertEqual(thresholds["thresholds"]["queueDrainMaximumMinutes"], 15)
+        self.assertEqual(thresholds["thresholds"]["workerMemoryMaximumMb"], 512)
+        self.assertEqual(thresholds["thresholds"]["retryAttemptsMaximumPerOperation"], 5)
+        self.assertEqual(thresholds["thresholds"]["telemetryCpuOverheadMaximumPercent"], 15)
+        self.assertIn("not granted", (ROOT / "docs" / "testing" / "PERFORMANCE-THRESHOLD-DECISION-LOG.md").read_text())
+
 
 if __name__ == "__main__":
     unittest.main()

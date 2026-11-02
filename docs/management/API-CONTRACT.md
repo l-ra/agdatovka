@@ -13,8 +13,10 @@ schema.
 - Base path: `/api/v1`; JSON uses UTF-8 and RFC 3339 timestamps in UTC.
 - Every response includes `requestId`; every mutating request accepts a caller
   `Idempotency-Key` and a `Correlation-Id`.
-- Message/attachment bytes are uploaded as streams or by a pre-authorized
-  content upload. Metadata never contains an unbounded byte field.
+- Message/attachment bytes are uploaded as streams or by a bounded synthetic
+  `contentBase64` fixture. The server computes the digest and byte length from
+  received bytes; metadata-only attachment requests are rejected. Metadata
+  never contains an unbounded byte field.
 - Long operations return `202 Accepted` with an operation resource. HTTP
   acceptance is not upstream delivery.
 - Errors use `application/problem+json` (RFC 9457) with stable `type`, `code`,
@@ -36,7 +38,7 @@ schema.
 | `PUT /boxes/{boxId}/members/{identityId}` | Assign role(s) within a box | `200` membership | `membership:manage` |
 | `POST /auth-methods` | Register an allowed auth method/profile, never a raw secret | `201` | `auth:manage` |
 | `POST /messages` | Create a message draft with metadata and content references | `201` draft | `message:create` |
-| `POST /messages/{id}/attachments` | Stream an attachment or create an upload session | `201/202` content ref | `message:create` |
+| `POST /messages/{id}/attachments` | Stream an attachment or submit a bounded synthetic byte fixture | `201/202` verified content ref | `message:create` |
 | `POST /messages/{id}/submit` | Validate and enqueue delivery | `202` operation | `message:send` |
 | `GET /messages/{id}` | Read authorized normalized message projection | `200` message | `message:read` |
 | `GET /messages/{id}/events` | Read lifecycle events and source codes | `200` page | `message:read` |
@@ -94,6 +96,50 @@ Content-Type: application/json
 
 The same key and semantically identical body return the original operation;
 the same key with a different body returns `409 idempotency_conflict`.
+The management boundary durably claims `(tenant, actor, key)` before routing.
+Claims record attempt count and `claimed`/`completed` response state; a retry
+after a synthetic timeout or crash reclaims the same row and never exposes a
+database uniqueness error. This SQLite behavior is a deterministic local
+fixture, not production database evidence.
+
+### Verified attachment ingress
+
+The local direct-call fixture accepts JSON with `filename`, optional
+`mediaType`, `contentBase64`, and optional declared `byteLength` and
+`contentDigest`. It decodes the bytes, computes `sha256:<hex>`, and compares
+any declarations before persisting the content reference. Missing bytes,
+malformed lengths, digest mismatches, negative lengths, and over-limit lengths
+return stable Problem JSON.
+
+The WSGI boundary accepts an octet-stream body with `X-Upload-Filename`,
+optional `X-Upload-Media-Type`, `X-Content-Length`, and `X-Content-Digest`
+headers. The server remains authoritative for the recorded digest and length.
+
+### Synthetic worker and receipts
+
+Submit creates the operation projection and durable outbox item in one request
+transaction and returns `queued`. The explicit local `ManagementApp.run_worker()`
+seam dispatches tenant-scoped leases through the synthetic adapter, persists a
+stable per-attempt reconciliation key, projects `submitting` and `delivered`
+lifecycle events, and persists an immutable receipt with raw evidence digest.
+It never contacts a public or production endpoint. A `delivered` projection is
+therefore synthetic worker evidence, not a legal or production delivery claim.
+The receipt response preserves `rawXml` and additive `rawEvidenceBase64` fields,
+rechecks the stored bytes against `rawDigest`, and returns `validation`,
+`eventId`, and `auditEventId` trace links. A digest mismatch or mutable marker
+returns `409 receipt_integrity_failure`; it never serves unverified evidence.
+Exports embed the same receipt record and digest, so the receipt, operation,
+lifecycle event, audit record, and export manifest remain mutually traceable.
+
+### Retention and restore controls
+
+`POST /retention/legal-holds`, `PATCH /retention/legal-holds/{id}`, and
+`POST /retention/deletion-requests` provide explicit synthetic policy,
+legal-hold, and tombstone evidence. `POST /retention/restore` verifies an
+export manifest, attachment digests, audit hash chain, authorization scope,
+and pending-operation reconciliation in a disposable namespace; it never
+blindly replays a send. The policy version is `ag-v1` and is a reference
+fixture, not universal legal advice.
 
 ## Authorization model
 

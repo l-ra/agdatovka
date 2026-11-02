@@ -101,18 +101,37 @@ class IsdsCompatibilityAdapter:
         if format not in {"xml", "zfo"}:
             raise AdapterError("unsupported_receipt_format", "receipt format must be xml or zfo")
         occurred_at = None
+        validation = {"validator": ADAPTER_VERSION, "signature": "not_present", "chain": "not_present", "error": None}
         try:
             if format == "zfo" and raw.startswith(b"SYNTHETIC-ZFO\n"):
-                values = dict(line.split("=", 1) for line in raw.decode().splitlines()[1:] if "=" in line)
-                message_id, status = values["messageId"], values["status"]
+                payload = raw.split(b"\n", 1)[1]
+                try:
+                    values = json.loads(payload.decode("utf-8"))
+                    data = values.get("data", values)
+                    message_id, status = values["messageId"], data["status"]
+                    validation.update(data.get("validation", {}))
+                except (json.JSONDecodeError, KeyError):
+                    values = dict(line.split("=", 1) for line in payload.decode().splitlines() if "=" in line)
+                    message_id, status = values["messageId"], values["status"]
             else:
                 root = ET.fromstring(raw)
                 message_id, status = root.attrib["messageId"], root.attrib["status"]
                 occurred_at = root.attrib.get("occurredAt")
-        except (ET.ParseError, KeyError, UnicodeDecodeError, ValueError):
+                validation["signature"] = root.attrib.get("signatureStatus", "not_present")
+                validation["chain"] = root.attrib.get("chainStatus", "not_present")
+                validation["error"] = root.attrib.get("errorCode")
+        except (ET.ParseError, KeyError, UnicodeDecodeError, ValueError, TypeError):
             raise AdapterError("invalid_receipt", "receipt evidence is not valid synthetic XML/ZFO")
+        if validation["error"]:
+            raise AdapterError("receipt_error", "receipt_error: receipt declares an upstream validation error")
+        if validation["signature"] not in {"verified", "not_present"}:
+            raise AdapterError("invalid_receipt_signature", "invalid_receipt_signature: receipt signature validation failed")
+        if validation["chain"] not in {"verified", "not_present"}:
+            raise AdapterError("invalid_receipt_chain", "invalid_receipt_chain: receipt certificate chain validation failed")
+        validation["status"] = "passed"
         return DomainEvent("receipt_received", message_id, None, self.source_profile, occurred_at,
-                           {"format": format, "status": status, "rawDigest": digest(raw), "rawBytes": len(raw), "valid": True})
+                           {"format": format, "status": status, "rawDigest": digest(raw), "rawBytes": len(raw),
+                            "rawEvidenceBase64": base64.b64encode(raw).decode("ascii"), "validation": validation, "valid": True})
 
     def parse_error(self, payload: Mapping[str, Any]) -> DomainEvent:
         self._require(payload, "code", "message")

@@ -15,15 +15,18 @@ load testing is permitted by this document.
 - **Evidence:** commit SHA, fixture/profile versions, generator seed, request
   and operation counts, queue graphs, latency histograms, error/retry counts,
   resource graphs, checksums, and cleanup result.
-- **Pass rule:** thresholds below must be agreed by QA and architecture before
-  execution; any threshold change creates a decision-log entry.
+- **Pass rule:** the numeric QA proposal is p99 admission latency ≤750ms,
+  unexpected error rate ≤1%, queue drain ≤15 minutes, worker memory ≤512MiB,
+  retry attempts ≤5 per operation, and telemetry CPU overhead ≤15% with zero
+  dropped required events. Architecture must approve or replace these values
+  before execution; any threshold change creates a decision-log entry.
 
 ## Scenarios
 
 | ID | Workload and fixture | Metrics | Initial acceptance criteria | State |
 | --- | --- | --- | --- | --- |
-| PERF-01 | 1,000/min for 30 min; 90% small synthetic messages, 9% medium, 1% large; 1–5 attachments | accepted rate, p50/p95/p99 API admission, queue age, worker throughput, error rate | ≥1,000/min accepted for full window; no lost/duplicated operations; p99 and error limits recorded before run | Defined, not run |
-| PERF-02 | 5-minute burst at 3× target followed by 20-minute drain | queue depth/age, 429/202 mix, recovery time, oldest operation age | Backpressure is visible; no unbounded memory; drain reaches zero or documented steady state within agreed time | Defined, not run |
+| PERF-01 | 1,000/min for 30 min; 90% small synthetic messages, 9% medium, 1% large; 1–5 attachments | accepted rate, p50/p95/p99 API admission, queue age, worker throughput, error rate | ≥1,000/min accepted for full window; no lost/duplicated operations; p99 ≤750ms; unexpected errors ≤1% | Defined, not run |
+| PERF-02 | 5-minute burst at 3× target followed by 20-minute drain | queue depth/age, 429/202 mix, recovery time, oldest operation age | Backpressure is visible; no unbounded memory; drain completes within 15 minutes | Defined, not run |
 | PERF-03 | Large messages at profile maximum and just over maximum; streamed/resumable attachments | upload memory, checksum CPU/time, transfer latency, resume bytes, reject code | Memory stays within worker budget; resume does not duplicate content; over-limit rejection is deterministic | Defined, not run |
 | PERF-04 | Same idempotency key replayed concurrently and after timeout/crash | operation count, external-attempt count, duplicate side effects, conflict responses | One logical operation; same-body replay returns original; different-body replay is `409` | Defined, not run |
 | PERF-05 | Kill/restart workers at pre-submit, post-submit, and post-receipt points | recovery time, lease expiry, event order, reconciliation count | No missing event; no unbounded retry; terminal evidence is explainable | Defined, not run |

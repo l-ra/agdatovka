@@ -1,0 +1,16 @@
+.git
+.gitignore
+.paperclip
+__pycache__/
+*.py[cod]
+data/
+objects/
+tests/
+qa/
+evidence/
+docs/
+fixtures/
+.env
+.env.*
+!.env.example
+
