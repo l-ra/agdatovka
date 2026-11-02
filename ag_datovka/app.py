@@ -24,7 +24,7 @@ from typing import Any, Iterable, Mapping
 from urllib.parse import parse_qs, urlencode, urlsplit
 
 from .pipeline import DurablePipeline
-from .security import TrustError, TrustProfile, modern_subject, secret_handle, validate_endpoint
+from .security import TrustError, TrustProfile, secret_handle, validate_endpoint, validate_signed_oidc
 
 
 API_VERSION = "v1"
@@ -335,9 +335,16 @@ class Actor:
 class ManagementApp:
     """WSGI-compatible application and direct-call contract harness."""
 
-    def __init__(self, db_path: str = ":memory:") -> None:
+    def __init__(self, db_path: str = ":memory:", *, oidc_issuer: str | None = None,
+                 oidc_audience: str | None = None, oidc_signing_keys: Mapping[str, bytes] | None = None,
+                 revoked_token_ids: frozenset[str] = frozenset(), auth_profile: str = "test") -> None:
         self.db = Database(db_path)
         self.pipeline = DurablePipeline(self.db.connection, max_in_flight=1000, max_attempts=5)
+        self.oidc_issuer = oidc_issuer
+        self.oidc_audience = oidc_audience
+        self.oidc_signing_keys = dict(oidc_signing_keys or {})
+        self.revoked_token_ids = frozenset(revoked_token_ids)
+        self.auth_profile = auth_profile
         # The SQLite fixture is intentionally single-process.  Serializing the
         # request critical section makes the idempotency claim atomic for the
         # supported local deployment and gives deterministic concurrency tests.
@@ -521,18 +528,25 @@ class ManagementApp:
         if not auth.startswith("Bearer "):
             raise Problem(401, "authentication_required", "Authentication required", "Use a scoped bearer token.")
         token = auth[7:]
-        if token.startswith("oidc:"):
+        if token.count(".") == 2:
+            if not self.oidc_issuer or not self.oidc_audience or not self.oidc_signing_keys:
+                raise Problem(401, "auth_not_configured", "Authentication failed", "Signed caller authentication is not configured for this profile.")
             try:
-                subject, tenant, _permissions = modern_subject(token)
+                verified = validate_signed_oidc(token, signing_keys=self.oidc_signing_keys, issuer=self.oidc_issuer,
+                                                audience=self.oidc_audience, revoked_token_ids=self.revoked_token_ids)
             except TrustError as error:
                 raise Problem(401, error.code, "Authentication failed", error.detail)
+            subject, tenant = verified["subject"], verified["tenant"]
             box = self.db.one("SELECT id FROM boxes WHERE id=? AND status='active'", (tenant,))
             if not box:
                 raise Problem(401, "invalid_token", "Authentication failed", "The caller tenant is not valid.")
-            return Actor(subject, tenant)
-        if token in {"dev:platform", "dev:platform-admin"}:
+            identity = self.db.one("SELECT id FROM identities WHERE box_id=? AND subject=? AND status='active'", (tenant, subject))
+            if not identity:
+                raise Problem(401, "identity_binding_failed", "Authentication failed", "The caller subject is not an active identity in the token tenant.")
+            return Actor(identity["id"], tenant)
+        if self.auth_profile not in {"deploy", "production"} and token in {"dev:platform", "dev:platform-admin"}:
             return Actor("platform-admin", None, platform=True)
-        if token.startswith("dev:"):
+        if self.auth_profile not in {"deploy", "production"} and token.startswith("dev:"):
             parts = token.split(":")
             if len(parts) == 3 and parts[1] and parts[2]:
                 box = self.db.one("SELECT id FROM boxes WHERE id=?", (parts[1],))
@@ -1336,5 +1350,5 @@ class ManagementApp:
         return {"id": row["id"], "messageId": row["message_id"], "operationId": row["operation_id"], "status": row["status"], "sourceCode": row["source_code"], "sourceProfile": row["source_profile"], "rawDigest": row["raw_digest"], "rawXml": row["raw_xml"], "rawEvidenceBase64": base64.b64encode(raw).decode("ascii"), "validation": validation, "eventId": row["event_id"], "auditEventId": row["audit_event_id"], "validatedAt": row["validated_at"], "immutable": bool(row["immutable"])}
 
 
-def create_app(db_path: str = ":memory:") -> ManagementApp:
-    return ManagementApp(db_path)
+def create_app(db_path: str = ":memory:", **kwargs: Any) -> ManagementApp:
+    return ManagementApp(db_path, **kwargs)
