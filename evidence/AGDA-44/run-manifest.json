@@ -1,0 +1,38 @@
+{
+  "schema": "agdatovka.deployment-attempt.v1",
+  "issue": "AGDA-44",
+  "runDate": "2026-11-03",
+  "sourceCommit": "3660a354d59f6801c883df8592717481e6b6e264",
+  "status": "blocked-runtime-unavailable",
+  "target": {
+    "requestedDomainPattern": "https://{service}.167-235-133-45.sslip.io/",
+    "resolvedAddress": "167.235.133.45"
+  },
+  "containerRuntime": {
+    "docker": "unavailable",
+    "dockerCompose": "unavailable",
+    "alternateRuntimes": "unavailable",
+    "hostSocket": "unavailable"
+  },
+  "paperclipWorkspace": {
+    "runtimeServicesConfigured": false,
+    "runtimeServicesStarted": false
+  },
+  "publicProbes": {
+    "http": "308 redirect to HTTPS",
+    "https": "TLS alert internal error",
+    "applicationHealth": "not verified"
+  },
+  "verification": {
+    "tests": "69 passed",
+    "performanceReadiness": "valid; load not run",
+    "compileall": "passed",
+    "syntheticWorkflow": "passed"
+  },
+  "deployment": {
+    "containersStarted": false,
+    "imageDigests": "not available",
+    "migrationChecksum": "not available",
+    "httpsHealthChecks": "not available"
+  }
+}
