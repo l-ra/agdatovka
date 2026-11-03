@@ -3,7 +3,9 @@
   "issue": "AGDA-44",
   "runDate": "2026-11-03",
   "sourceCommit": "3660a354d59f6801c883df8592717481e6b6e264",
-  "status": "blocked-runtime-unavailable",
+  "verificationCheckout": "bffaa219f0b5cbd2e1fbedc9133e0dae0d54f1f4",
+  "publicProbeTime": "2026-11-03T21:15:00Z",
+  "status": "public-endpoints-verified",
   "target": {
     "requestedDomainPattern": "https://{service}.167-235-133-45.sslip.io/",
     "resolvedAddress": "167.235.133.45"
@@ -19,9 +21,20 @@
     "runtimeServicesStarted": false
   },
   "publicProbes": {
-    "http": "308 redirect to HTTPS",
-    "https": "TLS alert internal error",
-    "applicationHealth": "not verified"
+    "http": "api, management, user: 308 redirect to HTTPS",
+    "https": {
+      "api": {
+        "live": 200,
+        "ready": 200,
+        "readyDatabase": "ok",
+        "unauthenticatedBoxes": 401
+      },
+      "management": 200,
+      "user": 200,
+      "web": "TLS alert internal error",
+      "admin": "TLS alert internal error"
+    },
+    "applicationHealth": "api liveness/readiness verified; management and user HTTPS content verified"
   },
   "verification": {
     "tests": "69 passed",
@@ -30,9 +43,9 @@
     "syntheticWorkflow": "passed"
   },
   "deployment": {
-    "containersStarted": false,
-    "imageDigests": "not available",
-    "migrationChecksum": "not available",
-    "httpsHealthChecks": "not available"
+    "containersStarted": "not observable from this agent; public services responding",
+    "imageDigests": "not captured; deployment host runtime not exposed",
+    "migrationChecksum": "not captured; deployment host runtime not exposed",
+    "httpsHealthChecks": "api, management, and user verified; web/admin not verified"
   }
 }
