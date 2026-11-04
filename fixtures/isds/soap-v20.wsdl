@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<wsdl:definitions xmlns:wsdl="http://schemas.xmlsoap.org/wsdl/" xmlns:soap="http://schemas.xmlsoap.org/wsdl/soap/" xmlns:isds="http://isds.czechpoint.cz/v20" targetNamespace="http://isds.czechpoint.cz/v20">
+  <wsdl:documentation>Synthetic offline evidence; not an official service description.</wsdl:documentation>
+  <wsdl:types><xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"><xs:import namespace="http://isds.czechpoint.cz/v20" schemaLocation="soap-v20.xsd"/></xs:schema></wsdl:types>
+  <wsdl:portType name="SyntheticIsdsPort"><wsdl:operation name="Authenticate"/><wsdl:operation name="CreateMessage"/><wsdl:operation name="GetMessage"/><wsdl:operation name="GetListOfMessages"/><wsdl:operation name="GetMessageStateChanges"/><wsdl:operation name="GetDeliveryInfo"/><wsdl:operation name="GetOwnerInfo"/><wsdl:operation name="GetUserInfo"/></wsdl:portType>
+  <wsdl:binding name="SyntheticIsdsSoap11Binding" type="isds:SyntheticIsdsPort"><soap:binding style="document" transport="http://schemas.xmlsoap.org/soap/http"/></wsdl:binding>
+  <wsdl:service name="SyntheticIsdsService"><wsdl:port name="SyntheticIsdsPort" binding="isds:SyntheticIsdsSoap11Binding"><soap:address location="https://synthetic.invalid/isds/ws"/></wsdl:port><wsdl:port name="SyntheticIsdsLargePort" binding="isds:SyntheticIsdsSoap11Binding"><soap:address location="https://synthetic.invalid/isds/ws2"/></wsdl:port></wsdl:service>
+</wsdl:definitions>

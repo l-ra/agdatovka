@@ -1,0 +1,12 @@
+{
+  "manifestVersion": 1,
+  "syntheticOnly": true,
+  "sourceProfile": "isds-reference-2026-06-26",
+  "retrievedAt": "2026-10-30T00:00:00Z",
+  "evidence": {
+    "soap-v20.wsdl": {"version": "synthetic-v20", "sha256": "ad8c366e38e596ed9f5cb3c58b2d7f056b1e04f064ed02e44ceb04979dbc2bd3"},
+    "soap-v20.xsd": {"version": "synthetic-v20", "sha256": "0c962621356cd29e51d1883243d59ca6b5898e7e58ec48e454ed7852b5f85e04"}
+  },
+  "endpoints": {"standard": "https://synthetic.invalid/isds/ws", "large": "https://synthetic.invalid/isds/ws2"},
+  "limitations": ["No live endpoint, account, certificate, credential, personal data, or production payload is used.", "ws2 is reserved and rejects the standard operation matrix."]
+}

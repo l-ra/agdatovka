@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" targetNamespace="http://isds.czechpoint.cz/v20" xmlns:tns="http://isds.czechpoint.cz/v20" elementFormDefault="qualified">
+  <xs:element name="CreateMessage"><xs:complexType><xs:sequence><xs:element name="messageId" type="xs:string"/><xs:element name="subject" type="xs:string"/><xs:element name="recipientBoxId" type="xs:string"/><xs:element name="attachments" type="tns:Attachments"/></xs:sequence></xs:complexType></xs:element>
+  <xs:complexType name="Attachments"><xs:sequence><xs:element name="attachment" minOccurs="0" maxOccurs="50"><xs:complexType><xs:sequence><xs:element name="filename" type="xs:string"/><xs:element name="mediaType" type="xs:string"/><xs:element name="contentBase64" type="xs:base64Binary"/></xs:sequence></xs:complexType></xs:element></xs:sequence></xs:complexType>
+  <xs:element name="GetMessage" type="tns:MessageQuery"/><xs:element name="GetDeliveryInfo" type="tns:MessageQuery"/>
+  <xs:complexType name="MessageQuery"><xs:sequence><xs:element name="messageId" type="xs:string"/></xs:sequence></xs:complexType>
+  <xs:element name="GetListOfMessages" type="tns:RangeQuery"/><xs:element name="GetMessageStateChanges" type="tns:RangeQuery"/>
+  <xs:complexType name="RangeQuery"><xs:sequence><xs:element name="boxId" type="xs:string"/><xs:element name="from" type="xs:string"/><xs:element name="to" type="xs:string"/></xs:sequence></xs:complexType>
+  <xs:element name="Authenticate"><xs:complexType><xs:sequence><xs:element name="requestId" type="xs:string"/><xs:element name="login" type="xs:string"/></xs:sequence></xs:complexType></xs:element>
+  <xs:element name="GetOwnerInfo" type="tns:BoxQuery"/><xs:element name="GetUserInfo" type="tns:UserQuery"/>
+  <xs:complexType name="BoxQuery"><xs:sequence><xs:element name="boxId" type="xs:string"/></xs:sequence></xs:complexType><xs:complexType name="UserQuery"><xs:sequence><xs:element name="userId" type="xs:string"/></xs:sequence></xs:complexType>
+</xs:schema>

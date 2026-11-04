@@ -25,6 +25,7 @@ from urllib.parse import parse_qs, urlencode, urlsplit
 
 from .pipeline import DurablePipeline
 from .isds_adapter import AdapterError, IsdsCompatibilityAdapter
+from .soap_gateway import SyntheticSoapGateway
 from .security import TrustError, TrustProfile, secret_handle, validate_endpoint, validate_signed_oidc
 
 
@@ -357,6 +358,7 @@ class ManagementApp:
         self.oidc_signing_keys = dict(oidc_signing_keys or {})
         self.revoked_token_ids = frozenset(revoked_token_ids)
         self.auth_profile = auth_profile
+        self.soap_gateway = SyntheticSoapGateway()
         # The SQLite fixture is intentionally single-process.  Serializing the
         # request critical section makes the idempotency claim atomic for the
         # supported local deployment and gives deterministic concurrency tests.
@@ -389,7 +391,8 @@ class ManagementApp:
             payload = canonical_json(problem.as_json(request_id)).encode("utf-8")
             start_response("400 Bad Request", [("content-type", "application/problem+json"), ("x-request-id", request_id)])
             return [payload]
-        if length > MAX_UPLOAD_BYTES:
+        request_limit = 100 * 1024 * 1024 if path.startswith("/isds/") else MAX_UPLOAD_BYTES
+        if length > request_limit:
             request_id = environ.get("HTTP_X_REQUEST_ID") or new_id("req")
             problem = Problem(413, "content_too_large", "Content too large", "The request exceeds the local synthetic upload limit.")
             payload = canonical_json(problem.as_json(request_id)).encode("utf-8")
@@ -421,6 +424,11 @@ class ManagementApp:
         split = urlsplit(path)
         request_id = headers.get("x-request-id") or headers.get("correlation-id") or new_id("req")
         correlation_id = headers.get("correlation-id") or request_id
+        if split.path.startswith("/isds/"):
+            raw = body if isinstance(body, bytes) else (str(body).encode("utf-8") if body is not None else b"")
+            status, response_headers, payload, _exchange = self.soap_gateway.handle(method, split.path, headers, raw)
+            response_headers.setdefault("x-correlation-id", correlation_id)
+            return status, response_headers, payload
         if method.upper() == "GET" and split.path in {"/health/live", "/health/ready"}:
             return self._health(split.path, request_id)
         actor: Actor | None = None
