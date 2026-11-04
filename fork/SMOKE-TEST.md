@@ -21,6 +21,7 @@ specific. A binary build must retain upstream notices listed in `UPSTREAM.md`.
 ```sh
 fork/scripts/check.sh
 python3 fork/scripts/smoke.py --profile offline-fixture
+python3 fork/scripts/local_workflow.py --manifest /tmp/agda-29-manifest.json
 ```
 
 `check.sh` validates all three profiles without contacting a network. The two
@@ -32,6 +33,11 @@ checkout with the selected profile and capture only redacted logs:
 DATOVKA_PROFILE=fork/profiles/ag-synthetic.yaml <upstream-build-command>
 DATOVKA_PROFILE=fork/profiles/isds-public-test.yaml <upstream-build-command>
 ```
+
+`local_workflow.py` is the isolated endpoint run for this repository. It uses
+the API request boundary and an explicit synthetic worker seam, then removes
+its temporary SQLite store on exit. It exercises login/configuration, send,
+retrieve, lifecycle/receipt, search, and export without a network.
 
 Never place values for credential references, client keys, or passwords in the
 profile files. Inject them through the approved test secret store. Production

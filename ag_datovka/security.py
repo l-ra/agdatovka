@@ -1,5 +1,9 @@
 """Synthetic trust, endpoint, secret-handle, and modern caller-auth boundary."""
 from __future__ import annotations
+import base64
+import hashlib
+import hmac
+import json
 import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -59,3 +63,63 @@ def modern_subject(token: str, now: datetime | None = None) -> tuple[str, str, f
     except ValueError as exc: raise TrustError("invalid_token", "Caller token expiry is invalid.") from exc
     if expires <= int((now or datetime.now(timezone.utc)).timestamp()): raise TrustError("expired_token", "Caller token has expired.")
     return parts[1], parts[2], frozenset(p for p in parts[4].split(",") if p)
+
+
+def _unb64url(value: str) -> bytes:
+    if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9_-]+", value):
+        raise TrustError("invalid_token", "Signed caller token encoding is invalid.")
+    try:
+        return base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
+    except (ValueError, base64.binascii.Error) as exc:
+        raise TrustError("invalid_token", "Signed caller token encoding is invalid.") from exc
+
+
+def validate_signed_oidc(
+    token: str,
+    *,
+    signing_keys: Mapping[str, bytes],
+    issuer: str,
+    audience: str,
+    revoked_token_ids: frozenset[str] = frozenset(),
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Validate a compact HS256 OIDC-shaped token with explicit trust policy."""
+    parts = token.split(".")
+    if len(parts) != 3:
+        raise TrustError("invalid_token", "Modern caller authentication requires a signed compact token.")
+    encoded_header, encoded_claims, encoded_signature = parts
+    try:
+        header = json.loads(_unb64url(encoded_header))
+        claims = json.loads(_unb64url(encoded_claims))
+        signature = _unb64url(encoded_signature)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise TrustError("invalid_token", "Signed caller token is not valid JSON.") from exc
+    if not isinstance(header, dict) or header.get("alg") != "HS256" or header.get("typ") not in {None, "JWT"}:
+        raise TrustError("invalid_token", "Only the configured HS256 caller-token profile is accepted.")
+    kid = header.get("kid")
+    key = signing_keys.get(kid) if isinstance(kid, str) else None
+    if not isinstance(key, bytes) or not key:
+        raise TrustError("unknown_key", "Signed caller token key is not configured.")
+    signing_input = f"{encoded_header}.{encoded_claims}".encode("ascii")
+    expected = hmac.new(key, signing_input, hashlib.sha256).digest()
+    if not hmac.compare_digest(signature, expected):
+        raise TrustError("invalid_signature", "Signed caller token signature is invalid.")
+    if not isinstance(claims, dict):
+        raise TrustError("invalid_token", "Signed caller token claims are invalid.")
+    if claims.get("iss") != issuer:
+        raise TrustError("invalid_issuer", "Signed caller token issuer is not allowed.")
+    token_audience = claims.get("aud")
+    if token_audience != audience and not (isinstance(token_audience, list) and audience in token_audience):
+        raise TrustError("invalid_audience", "Signed caller token audience is not allowed.")
+    subject, tenant, token_id = claims.get("sub"), claims.get("tenant"), claims.get("jti")
+    if not all(isinstance(value, str) and value for value in (subject, tenant, token_id)):
+        raise TrustError("invalid_claims", "Signed caller token requires subject, tenant, and token id claims.")
+    try:
+        expires = int(claims["exp"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise TrustError("invalid_claims", "Signed caller token expiry is invalid.") from exc
+    if expires <= int((now or datetime.now(timezone.utc)).timestamp()):
+        raise TrustError("expired_token", "Caller token has expired.")
+    if token_id in revoked_token_ids:
+        raise TrustError("revoked_token", "Caller token has been revoked.")
+    return {"subject": subject, "tenant": tenant, "tokenId": token_id, "permissions": tuple(claims.get("permissions", ())), "claims": claims}

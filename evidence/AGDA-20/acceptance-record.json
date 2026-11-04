@@ -1,0 +1,22 @@
+{
+  "schema": "agdatovka.phase3.acceptance.v1",
+  "scope": "synthetic-test-only",
+  "baselineCommit": "dce9120b634397d4811c15d6ba033674e5dc9c63",
+  "candidate": true,
+  "testResult": {"command": "python3 -m unittest discover -s tests -v", "passed": 42},
+  "checks": {
+    "F-003": {"status": "implemented-synthetic", "test": "test_concurrent_idempotency_claim_has_one_side_effect"},
+    "F-004": {"status": "implemented-synthetic", "test": "test_attachment_metadata_is_rejected_and_declared_values_are_verified"},
+    "F-005": {"status": "implemented-synthetic", "test": "verified contentBase64 and octet-stream ingress"},
+    "workerLifecycleReceipt": {"status": "implemented-synthetic", "test": "test_worker_projects_delivery_receipt_and_immutable_evidence"},
+    "retentionRestore": {"status": "implemented-synthetic", "test": "test_legal_hold_blocks_tombstone_and_restore_verifies_export"},
+    "managementUi": {"status": "implemented-static-slice", "path": "ui/"},
+    "performance": {"status": "deferred", "reason": "no human-approved thresholds or synthetic load authorization"},
+    "datovkaLocalEndpoint": {"status": "deferred", "reason": "fork workflow evidence still belongs to P3-09"},
+    "independentSecurityReview": {"status": "pending", "task": "AGDA-31"},
+    "releaseIntegrationAndMirror": {"status": "pending", "task": "AGDA-32"}
+  },
+  "productionClaims": false,
+  "migrationClaims": false,
+  "legalComplianceClaims": false
+}

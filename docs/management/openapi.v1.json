@@ -59,7 +59,7 @@
     },
     "/messages/{messageId}/attachments": {
       "parameters": [{"$ref": "#/components/parameters/MessageId"}],
-      "post": {"tags": ["messages"], "description": "The production boundary is a bounded streaming upload. The local fixture stores only metadata and digest.", "requestBody": {"$ref": "#/components/requestBodies/Json"}, "responses": {"201": {"description": "Attachment content reference"}, "413": {"$ref": "#/components/responses/Problem"}}}
+      "post": {"tags": ["messages"], "description": "The server computes and verifies the attachment digest and byte length from received bytes. The direct synthetic fixture uses bounded contentBase64; the WSGI boundary accepts application/octet-stream. Metadata-only uploads are rejected.", "requestBody": {"content": {"application/json": {"schema": {"$ref": "#/components/schemas/AttachmentUpload"}}, "application/octet-stream": {"schema": {"type": "string", "format": "binary"}}}}, "responses": {"201": {"description": "Verified attachment content reference"}, "400": {"$ref": "#/components/responses/Problem"}, "413": {"$ref": "#/components/responses/Problem"}, "415": {"$ref": "#/components/responses/Problem"}}}
     },
     "/messages/{messageId}/submit": {
       "parameters": [{"$ref": "#/components/parameters/MessageId"}],
@@ -90,11 +90,25 @@
     },
     "/audit/events": {
       "get": {"tags": ["audit"], "parameters": [{"$ref": "#/components/parameters/BoxQuery"}, {"$ref": "#/components/parameters/Limit"}, {"$ref": "#/components/parameters/Cursor"}], "responses": {"200": {"description": "Hash-linked audit page"}, "403": {"$ref": "#/components/responses/Problem"}}}
+    },
+    "/retention/legal-holds": {
+      "post": {"tags": ["policy"], "requestBody": {"$ref": "#/components/requestBodies/Json"}, "responses": {"201": {"description": "Created legal hold"}, "409": {"$ref": "#/components/responses/Problem"}}}
+    },
+    "/retention/legal-holds/{holdId}": {
+      "parameters": [{"name": "holdId", "in": "path", "required": true, "schema": {"type": "string"}}],
+      "patch": {"tags": ["policy"], "requestBody": {"$ref": "#/components/requestBodies/Json"}, "responses": {"200": {"description": "Released legal hold"}}}
+    },
+    "/retention/deletion-requests": {
+      "post": {"tags": ["policy"], "requestBody": {"$ref": "#/components/requestBodies/Json"}, "responses": {"202": {"description": "Tombstone request accepted"}, "409": {"$ref": "#/components/responses/Problem"}}}
+    },
+    "/retention/restore": {
+      "post": {"tags": ["policy"], "requestBody": {"$ref": "#/components/requestBodies/Json"}, "responses": {"200": {"description": "Synthetic restore verification"}, "422": {"$ref": "#/components/responses/Problem"}}}
     }
   },
   "components": {
     "securitySchemes": {"bearerAuth": {"type": "http", "scheme": "bearer", "bearerFormat": "scoped-token"}},
     "parameters": {
+      "IdempotencyKey": {"name": "Idempotency-Key", "in": "header", "required": true, "description": "Stable request key for every mutating request; same-body replay returns the stored response and a different body returns 409.", "schema": {"type": "string", "minLength": 1, "maxLength": 255}},
       "BoxId": {"name": "boxId", "in": "path", "required": true, "schema": {"type": "string"}},
       "IdentityId": {"name": "identityId", "in": "path", "required": true, "schema": {"type": "string"}},
       "MessageId": {"name": "messageId", "in": "path", "required": true, "schema": {"type": "string"}},
@@ -110,6 +124,7 @@
     "responses": {"Problem": {"description": "RFC 9457 problem details", "content": {"application/problem+json": {"schema": {"$ref": "#/components/schemas/Problem"}}}}},
     "schemas": {
       "Problem": {"type": "object", "required": ["type", "code", "title", "status", "detail", "requestId", "retryable"], "properties": {"type": {"type": "string", "format": "uri"}, "code": {"type": "string"}, "title": {"type": "string"}, "status": {"type": "integer"}, "detail": {"type": "string"}, "requestId": {"type": "string"}, "retryable": {"type": "boolean"}, "fieldErrors": {"type": "array", "items": {"type": "object"}}}},
+      "AttachmentUpload": {"type": "object", "required": ["filename", "contentBase64"], "properties": {"filename": {"type": "string", "maxLength": 255}, "mediaType": {"type": "string"}, "contentBase64": {"type": "string", "contentEncoding": "base64", "maxLength": 22369624}, "byteLength": {"type": "integer", "minimum": 0, "maximum": 16777216}, "contentDigest": {"type": "string", "pattern": "^sha256:[0-9a-fA-F]{64}$"}}},
       "Box": {"type": "object", "required": ["id", "name", "kind", "status", "createdAt", "updatedAt"], "properties": {"id": {"type": "string"}, "name": {"type": "string"}, "kind": {"type": "string"}, "status": {"type": "string"}, "config": {"type": "object"}, "createdAt": {"type": "string", "format": "date-time"}, "updatedAt": {"type": "string", "format": "date-time"}}},
       "Identity": {"type": "object", "required": ["id", "boxId", "subject", "status"], "properties": {"id": {"type": "string"}, "boxId": {"type": "string"}, "subject": {"type": "string"}, "displayName": {"type": "string"}, "status": {"type": "string"}}},
       "Message": {"type": "object", "required": ["id", "boxId", "subject", "status", "createdAt", "updatedAt"], "properties": {"id": {"type": "string"}, "boxId": {"type": "string"}, "senderIdentityId": {"type": ["string", "null"]}, "targetBoxId": {"type": ["string", "null"]}, "subject": {"type": "string"}, "status": {"type": "string"}, "contentDigest": {"type": ["string", "null"]}, "metadata": {"type": "object"}, "createdAt": {"type": "string", "format": "date-time"}, "updatedAt": {"type": "string", "format": "date-time"}}},

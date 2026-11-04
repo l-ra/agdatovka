@@ -107,9 +107,23 @@ only `vault:`, `hsm:`, or `kms:` handles, never private key material.
 
 Certificate validation fails closed for incomplete/unverified chains, expired
 certificates, wrong SAN, wrong key usage, revoked status, and unknown issuers.
-The `oidc:` caller token is a modern integration point with expiry and tenant
-scope; the existing `dev:` token remains a compatibility-only synthetic path.
-Both paths still require database membership and permission checks.
+Modern management authentication accepts only a signed compact HS256 token from
+the explicitly configured issuer, audience, and key id. It requires `iss`,
+`aud`, `sub`, `tenant`, `jti`, and unexpired `exp`; configured revocations are
+checked before the token is mapped to an active identity whose stored subject
+matches both the token subject and tenant. Unsigned OIDC-shaped strings are
+rejected. The `dev:` token remains a compatibility-only test adapter and is
+disabled when `auth_profile` is `deploy` or `production`; deployment profiles
+must use their identity provider/JWKS verifier. Both paths still require
+database membership and permission checks.
+
+F-007 (same-tenant sender identity impersonation) is closed by actor binding:
+the signed subject resolves to the active identity record, and all permission
+checks use that identity id rather than a caller-supplied subject. F-008
+(unsigned OIDC-shaped bearer acceptance) is closed by signature, issuer,
+audience, expiry, revocation, tenant, and subject validation. The verifier is
+stdlib-only synthetic boundary code; no production endpoint, credential, or
+private key is included in this repository.
 
 ## Tenant-isolation remediation (AGDA-12)
 

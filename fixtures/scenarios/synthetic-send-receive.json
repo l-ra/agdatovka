@@ -1,0 +1,7 @@
+{
+  "id": "agda-38-p4-05",
+  "syntheticOnly": true,
+  "command": "python3 -m unittest tests.test_vertical_slice -v",
+  "flow": ["create sender and recipient boxes", "create message and verified attachment", "submit through transactional outbox", "dispatch and process with synthetic adapter worker", "persist receipt before projecting delivered sender/recipient state", "verify recipient inbox and copied attachment", "export receipt/audit evidence", "exercise legal-hold, tombstone, and isolated restore", "inject invalid receipt and verify delivered is not emitted"],
+  "prohibited": ["real ISDS endpoint", "real credential", "personal data", "production message content"]
+}

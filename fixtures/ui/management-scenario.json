@@ -1,0 +1,13 @@
+{
+  "profile": "ag-synthetic",
+  "syntheticOnly": true,
+  "apiBase": "/api/v1",
+  "steps": [
+    {"id": "connect", "action": "connect with dev:platform", "expected": "boxes load"},
+    {"id": "access", "action": "create identity and assign box-operator", "expected": "membership recorded"},
+    {"id": "submit", "action": "create message, attach ui.txt, submit", "expected": "queued operation"},
+    {"id": "inspect", "action": "refresh operation and lifecycle", "expected": "operation and events visible"},
+    {"id": "evidence", "action": "create export and inspect audit", "expected": "manifest and hash-linked events visible"},
+    {"id": "a11y", "action": "keyboard-only traversal and forced validation error", "expected": "manual-review", "result": "manual-review", "notes": "No production UX claim."}
+  ]
+}

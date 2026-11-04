@@ -97,3 +97,54 @@ decision is still required.
 - **ADR-P03:** Qualified trust-service/timestamp provider and evidence format.
 - **ADR-P04:** Deployment platform, database/object-store technology, and queue
   implementation; these are intentionally not fixed by this foundation.
+
+## ADR-010 — Phase 2 evidence reconciliation and synthetic contract freeze
+
+- **Status:** accepted
+- **Decision:** Freeze Phase 2 as synthetic/test-only evidence. Use the exact
+  local source and integrated-main SHAs in the AGDA-21 reconciliation record;
+  preserve the AGDA-16 failed mirror attempt as historical evidence; and do
+  not treat readiness manifests, offline fixtures, or the 33-test report as
+  production, compatibility, performance, security, legal, or compliance
+  proof.
+- **Conflicts resolved:** The AGDA-16 `/tmp/agda-10-integration` narrative is
+  historical rather than the current checkout; the provider refs are
+  divergent and do not establish full mirror parity; AGDA-14's 29-test text
+  is superseded by the current 33-test run without changing its adverse
+  verdict; and AGDA-13 readiness remains distinct from deferred performance
+  execution.
+- **Evidence:** `evidence/AGDA-21/README.md`, `evidence/AGDA-14/README.md`,
+  `evidence/AGDA-13/README.md`, and `main:evidence/AGDA-16/mirror-verification.md`.
+
+## ADR-011 — Phase 3 synthetic functional vertical slice
+
+- **Status:** candidate implementation; specialist review and release gates
+  remain open.
+- **Decision:** Keep the management API and worker seam dependency-free and
+  synthetic, but make received attachment bytes authoritative. The direct
+  fixture uses bounded base64 and the WSGI boundary uses octet-stream; the
+  server computes digest and length, validates declarations, and rejects
+  metadata-only uploads.
+- **Decision:** Claim mutating idempotency keys before routing and persist
+  response state/attempts. Same-body requests replay one durable result;
+  different bodies conflict. The local SQLite fixture serializes the request
+  critical section, while the uniqueness path remains a stable conflict/replay
+  boundary.
+- **Decision:** Submit writes a durable outbox record and returns `queued`.
+  Only the explicit synthetic worker seam may project `delivered` and create a
+  receipt; HTTP acceptance is never upstream delivery evidence.
+- **Decision:** Retention endpoints record policy version, legal holds, and
+  tombstones. Restore verifies manifests, attachment digests, and audit links
+  in a disposable namespace and explicitly prevents blind send replay. This
+  is a reference fixture, not legal policy or compliance certification.
+- **Deferred:** Production persistence/queue/object store, actual public
+  endpoint compatibility, performance execution, qualified trust services,
+  and release/mirror integration remain approval-gated Phase 3 work.
+# ADR: durable synthetic worker reconciliation (P3-04)
+
+The delivery boundary is a transactional outbox followed by a leased queue.
+The operation and outbox row share the request commit; adapter side effects are
+prepared with a stable per-attempt idempotency key and recorded with synthetic
+evidence before a delivered projection. Tenant and global in-flight limits
+provide explicit backpressure. This keeps pre-submit, post-submit, and
+post-receipt restarts accounted for without claiming external ISDS semantics.

@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AG Datovka 2 — synthetic management</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <header class="site-header">
+    <p class="eyebrow">AG Datovka 2</p>
+    <h1>Synthetic management console</h1>
+    <p>Manage offline <code>ag-synthetic</code> fixtures through the versioned management API.</p>
+  </header>
+  <main>
+    <div id="error-summary" class="error-summary" role="alert" tabindex="-1" hidden><h2>Request could not be completed</h2><p id="error-text"></p></div>
+    <section class="panel" aria-labelledby="connection-title">
+      <h2 id="connection-title">Connection</h2>
+      <form id="connection-form" class="form-grid">
+        <div><label for="api-base">API base</label><input id="api-base" name="api-base" value="http://127.0.0.1:8080/api/v1" required></div>
+        <div><label for="token">Synthetic bearer token</label><input id="token" name="token" value="dev:platform" autocomplete="off" required></div>
+        <div class="form-actions"><button type="submit">Use endpoint</button></div>
+      </form>
+      <p id="connection-status" role="status" aria-live="polite">Not connected.</p>
+    </section>
+    <section class="panel" aria-labelledby="boxes-title">
+      <h2 id="boxes-title">Databox and access</h2>
+      <div class="form-grid"><form id="box-form"><label for="box-name">New box name</label><input id="box-name" required><button type="submit">Create box</button></form><div><label for="box-select">Active box</label><select id="box-select" required><option value="">Connect and load boxes</option></select></div></div>
+      <div class="subsection"><h3>Identity</h3>
+        <form id="identity-form" class="form-grid"><div><label for="identity-subject">Subject</label><input id="identity-subject" required></div><div><label for="identity-name">Display name</label><input id="identity-name" required></div><div class="form-actions"><button type="submit">Create identity</button></div></form>
+        <form id="membership-form" class="form-grid"><div><label for="identity-select">Identity</label><select id="identity-select" required><option value="">Create or load an identity</option></select></div><div><label for="role-select">Role</label><select id="role-select"><option value="box-operator">box-operator</option><option value="auditor">auditor</option><option value="box-owner">box-owner</option></select></div><div class="form-actions"><button type="submit">Assign membership</button></div></form>
+        <p id="access-status" class="hint" role="status" aria-live="polite">No identity loaded.</p></div>
+    </section>
+    <section class="panel" aria-labelledby="message-title">
+      <h2 id="message-title">Message</h2>
+      <form id="message-form" class="form-grid">
+        <div><label for="subject">Subject</label><input id="subject" required></div><div><label for="target-box">Target box (synthetic)</label><input id="target-box" placeholder="optional"></div>
+        <div class="wide"><label for="attachment">Attachment text</label><textarea id="attachment" rows="4" aria-describedby="attachment-help"></textarea><p id="attachment-help" class="hint">The API computes the digest and byte length from received bytes.</p></div><div class="form-actions"><button type="submit">Create, attach, and submit</button></div>
+      </form>
+    </section>
+    <section class="panel" aria-labelledby="policy-title">
+      <h2 id="policy-title">Trust, endpoints, and retention</h2>
+      <p class="hint">Platform profile changes require the platform bearer token. Retention actions are synthetic evidence only.</p>
+      <form id="profile-form" class="form-grid">
+        <div><label for="trust-name">Trust profile name</label><input id="trust-name" value="ui-synthetic-root" required></div>
+        <div><label for="trust-anchor">Anchor fingerprint</label><input id="trust-anchor" value="sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" pattern="sha256:[a-f0-9]{64}" required></div>
+        <div><label for="endpoint-host">Endpoint hostname</label><input id="endpoint-host" value="isds.synthetic.test" required></div>
+        <div class="form-actions"><button type="submit">Save synthetic profiles</button></div>
+      </form>
+      <form id="hold-form" class="form-grid">
+        <div><label for="hold-resource">Held resource ID</label><input id="hold-resource" required></div>
+        <div><label for="hold-reason">Legal hold reason</label><input id="hold-reason" required></div>
+        <div class="form-actions"><button type="submit">Create legal hold</button></div>
+      </form>
+      <form id="retention-form" class="form-grid">
+        <div><label for="retention-resource">Deletion resource ID</label><input id="retention-resource" required></div>
+        <div><label for="retention-export">Restore export ID</label><input id="retention-export" placeholder="optional"></div>
+        <div class="form-actions"><button type="submit">Apply retention action</button></div>
+      </form>
+    </section>
+    <section class="panel" aria-labelledby="evidence-title">
+      <h2 id="evidence-title">Receipts and health</h2>
+      <form id="receipt-form" class="inline-form"><label for="receipt-message">Message ID</label><input id="receipt-message" required><label for="receipt-id">Receipt ID</label><input id="receipt-id" required><button type="submit">View receipt</button></form>
+      <button id="health" type="button" class="secondary">Check API health</button>
+    </section>
+    <section class="panel" aria-labelledby="results-title">
+      <h2 id="results-title">Operations, search, and audit</h2>
+      <form id="search-form" class="inline-form"><label for="search-text">Search messages</label><input id="search-text" placeholder="subject, status, or ID"><button type="submit">Search</button><button id="refresh" type="button" class="secondary">Refresh selected box</button></form>
+      <div class="record-actions"><button id="export" type="button">Create JSONL export</button><button id="operation-refresh" type="button" class="secondary">Refresh last operation</button></div>
+      <p id="record-status" class="hint" role="status" aria-live="polite">No records loaded.</p>
+      <pre id="results" tabindex="0" aria-label="API results">No result yet.</pre>
+    </section>
+  </main>
+  <footer><p>Offline synthetic fixture only. This console makes no production delivery or compliance claim.</p></footer>
+  <script src="./app.js" defer></script>
+</body>
+</html>

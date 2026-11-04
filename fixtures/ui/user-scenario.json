@@ -1,0 +1,12 @@
+{
+  "syntheticOnly": true,
+  "profile": "ag-synthetic",
+  "application": "ui/user",
+  "steps": [
+    {"action": "sign-in", "result": "session-and-authorized-box"},
+    {"action": "select-box", "result": "scoped-inbox"},
+    {"action": "open-message", "result": "read-state-and-lifecycle"},
+    {"action": "compose-attachment", "result": "server-verified-length-and-digest"},
+    {"action": "export", "result": "manifested-download"}
+  ]
+}
