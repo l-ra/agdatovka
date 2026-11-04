@@ -10,6 +10,8 @@ from typing import Any, Mapping
 
 SOURCE_PROFILE = "isds-reference-2026-06-26"
 ADAPTER_VERSION = "ag-isds-adapter-v1"
+MAX_ATTACHMENT_COUNT = 50
+MAX_DECODED_ATTACHMENT_BYTES = 100 * 1024 * 1024
 
 
 class AdapterError(ValueError):
@@ -57,12 +59,16 @@ class IsdsCompatibilityAdapter:
         if not isinstance(attachments, list) or any(not isinstance(a, Mapping) for a in attachments):
             raise AdapterError("invalid_attachments", "attachments must be a list of objects")
         normalized = []
+        decoded_bytes = 0
         for attachment in attachments:
             self._require(attachment, "filename", "mediaType", "contentBase64")
             try:
                 raw = base64.b64decode(str(attachment["contentBase64"]), validate=True)
             except (ValueError, TypeError):
                 raise AdapterError("invalid_attachment_encoding", "contentBase64 is not valid base64")
+            decoded_bytes += len(raw)
+            if decoded_bytes > MAX_DECODED_ATTACHMENT_BYTES:
+                raise AdapterError("attachment_bytes_limit", "decoded attachment bytes exceed the pinned 100 MiB synthetic limit")
             normalized.append({"filename": str(attachment["filename"]), "mediaType": str(attachment["mediaType"]),
                                "byteLength": len(raw), "contentDigest": digest(raw)})
         return (DomainEvent("message_envelope_received", str(payload["messageId"]), None, self.source_profile,
@@ -73,7 +79,7 @@ class IsdsCompatibilityAdapter:
         size, count = int(payload["sizeBytes"]), int(payload["attachmentCount"])
         if size < 0 or count < 0:
             raise AdapterError("invalid_large_message", "sizeBytes and attachmentCount must be non-negative")
-        if size > 100 * 1024 * 1024 or count > 50:
+        if size > MAX_DECODED_ATTACHMENT_BYTES or count > MAX_ATTACHMENT_COUNT:
             raise AdapterError("large_message_limit", "synthetic payload exceeds the pinned VoDZ profile")
         if payload["endpoint"] != "ws2":
             raise AdapterError("invalid_large_message_endpoint", "VoDZ must use the ws2 profile endpoint")

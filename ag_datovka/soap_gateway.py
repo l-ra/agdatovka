@@ -9,12 +9,15 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import json
 import uuid
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any, Mapping
 
-from .isds_adapter import AdapterError, IsdsCompatibilityAdapter
+from .isds_adapter import MAX_ATTACHMENT_COUNT, AdapterError, IsdsCompatibilityAdapter
+from .security import TrustError, TrustProfile, validate_isds_auth, validate_mtls_identity
 
 SOAP_ENV = "http://schemas.xmlsoap.org/soap/envelope/"
 ISDS_NS = "http://isds.czechpoint.cz/v20"
@@ -59,8 +62,26 @@ def _local(tag: str) -> str:
 class SyntheticSoapGateway:
     """Strict, deterministic SOAP 1.1 gateway for synthetic fixtures."""
 
-    def __init__(self, adapter: IsdsCompatibilityAdapter | None = None) -> None:
+    def __init__(self, adapter: IsdsCompatibilityAdapter | None = None, *, now: datetime | None = None) -> None:
         self.adapter = adapter or IsdsCompatibilityAdapter()
+        self._now = now
+        self._used_nonces: set[str] = set()
+        self._trust_profile = TrustProfile.from_mapping({
+            "name": "synthetic-mtls",
+            "version": "2026-10-30",
+            "anchorFingerprints": ["sha256:" + "a" * 64],
+            "allowedIssuers": ["Synthetic Test CA"],
+            "hostnames": ["isds.synthetic.test"],
+            "requiredKeyUsage": ["digitalSignature", "keyEncipherment"],
+            "revocation": "required",
+        })
+        self._bindings = {
+            "synthetic-box-002": {
+                "fingerprint": "sha256:" + "b" * 64,
+                "application": "isds-soap",
+                "state": "active",
+            },
+        }
 
     def handle(self, method: str, path: str, headers: Mapping[str, str], raw_xml: bytes) -> tuple[int, dict[str, str], bytes, SoapExchange]:
         request_id = headers.get("x-request-id") or headers.get("correlation-id") or f"req_{uuid.uuid4().hex}"
@@ -77,6 +98,7 @@ class SyntheticSoapGateway:
             profile, required = OPERATIONS[operation]
             if expected_endpoint != profile:
                 raise SoapFault("Client.Endpoint", "Operation is not available on this endpoint", f"{operation} requires /isds/{profile}.")
+            self._verify_trust(values, headers)
             result = self._normalize(operation, values, request_id, correlation_id)
             response = self._response(operation, result, request_id, correlation_id)
             exchange = SoapExchange(raw_xml, None, result)
@@ -84,6 +106,33 @@ class SyntheticSoapGateway:
         except SoapFault as fault:
             response = self._fault(fault, request_id, correlation_id)
             return fault.status, {**self._headers(request_id), "content-type": "text/xml; charset=utf-8"}, response, SoapExchange(raw_xml, response, None)
+
+    def _verify_trust(self, values: Mapping[str, Any], headers: Mapping[str, str]) -> None:
+        """Require the ISDS identity; management bearer auth is not accepted here."""
+        box_id = values.get("recipientBoxId") or values.get("boxId") or "synthetic-box-002"
+        try:
+            certificate = json.loads(headers.get("x-isds-client-certificate", ""))
+            application_auth = json.loads(headers.get("x-isds-application-auth", ""))
+            if not isinstance(certificate, dict) or not isinstance(application_auth, dict):
+                raise ValueError
+            validate_mtls_identity(
+                certificate,
+                self._trust_profile,
+                hostname="isds.synthetic.test",
+                box_id=box_id,
+                bindings=self._bindings,
+                now=self._now,
+            )
+            validate_isds_auth(
+                application_auth,
+                box_id=box_id,
+                used_nonces=self._used_nonces,
+                now=self._now,
+            )
+        except (ValueError, TypeError, json.JSONDecodeError) as error:
+            raise SoapFault("Client.Authentication", "Authentication failed", "A synthetic certificate and application identity are required.", 401) from error
+        except TrustError as error:
+            raise SoapFault("Client.Authentication", "Authentication failed", error.detail, 401) from error
 
     def _parse_request(self, raw: bytes, headers: Mapping[str, str]) -> tuple[str, dict[str, Any]]:
         action = headers.get("soapaction", "").strip().strip('"')
@@ -115,7 +164,10 @@ class SyntheticSoapGateway:
                 raise SoapFault("Client.Namespace", "Invalid element namespace", "All operation elements must use the ISDS namespace.")
             if child.tag.endswith("attachments"):
                 attachments = []
-                for item in list(child):
+                items = list(child)
+                if len(items) > MAX_ATTACHMENT_COUNT:
+                    raise SoapFault("Client.AttachmentLimit", "Attachment count limit exceeded", "CreateMessage accepts at most 50 attachments.")
+                for item in items:
                     if item.tag != _tag(ISDS_NS, "attachment"):
                         raise SoapFault("Client.Namespace", "Invalid attachment namespace", "Attachments must use the ISDS namespace.")
                     fields = { _local(x.tag): x.text or "" for x in list(item) }

@@ -7,7 +7,7 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from pathlib import Path
 
-from ag_datovka.isds_adapter import AdapterError, IsdsCompatibilityAdapter
+from ag_datovka.isds_adapter import MAX_DECODED_ATTACHMENT_BYTES, AdapterError, IsdsCompatibilityAdapter
 from ag_datovka.pipeline import DurablePipeline
 from ag_datovka.security import TrustError, TrustProfile, validate_certificate
 from ag_datovka.soap_gateway import ISDS_NS, SOAP_ACTIONS, SOAP_ENV, SyntheticSoapGateway
@@ -62,6 +62,24 @@ class LifecycleAndVoDZConformanceTest(unittest.TestCase):
                 self.adapter.parse_large_message(payload)
             self.assertIn(caught.exception.code, {"large_message_limit", "invalid_large_message_endpoint"})
 
+    def test_decoded_attachment_aggregate_uses_inclusive_100_mib_boundary(self):
+        def attachment(size):
+            import base64
+            return {"filename": "synthetic.bin", "mediaType": "application/octet-stream",
+                    "contentBase64": base64.b64encode(b"x" * size).decode("ascii")}
+
+        event = self.adapter.parse_envelope({
+            "messageId": "synthetic-boundary", "envelope": {},
+            "attachments": [attachment(MAX_DECODED_ATTACHMENT_BYTES)],
+        })
+        self.assertEqual(event[0].data["attachments"][0]["byteLength"], MAX_DECODED_ATTACHMENT_BYTES)
+        with self.assertRaises(AdapterError) as caught:
+            self.adapter.parse_envelope({
+                "messageId": "synthetic-overage", "envelope": {},
+                "attachments": [attachment(MAX_DECODED_ATTACHMENT_BYTES), attachment(1)],
+            })
+        self.assertEqual(caught.exception.code, "attachment_bytes_limit")
+
     def test_receipt_raw_bytes_are_digestable_and_round_trip_exactly(self):
         raw = (FIXTURES / "receipt.xml").read_bytes()
         receipt = self.adapter.parse_receipt(raw)
@@ -74,7 +92,9 @@ class SoapFaultAndTrustConformanceTest(unittest.TestCase):
     def setUp(self):
         self.gateway = SyntheticSoapGateway()
         self.raw = (FIXTURES / "soap-create-message.xml").read_bytes()
-        self.headers = {"soapaction": SOAP_ACTIONS["CreateMessage"], "x-request-id": "req_agda62", "correlation-id": "corr_agda62"}
+        self.headers = {"soapaction": SOAP_ACTIONS["CreateMessage"], "x-request-id": "req_agda62", "correlation-id": "corr_agda62",
+                        "x-isds-client-certificate": json.dumps({"fingerprint": "sha256:" + "b" * 64, "anchorFingerprint": "sha256:" + "a" * 64, "issuer": "Synthetic Test CA", "notBefore": "2026-01-01T00:00:00Z", "notAfter": "2027-01-01T00:00:00Z", "san": ["isds.synthetic.test"], "keyUsage": ["digitalSignature", "keyEncipherment"], "chainValid": True, "revocation": "good"}),
+                        "x-isds-application-auth": json.dumps({"boxId": "synthetic-box-002", "application": "isds-soap", "nonce": "synthetic_nonce_agda62", "issuedAt": "2026-11-04T00:00:00Z", "expiresAt": "2026-11-04T23:59:00Z"})}
 
     def test_fault_matrix_preserves_safe_correlation_and_raw_provenance(self):
         cases = [

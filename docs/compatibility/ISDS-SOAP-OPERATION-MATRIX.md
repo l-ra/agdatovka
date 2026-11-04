@@ -15,6 +15,12 @@ or an official WSDL.
 | GetOwnerInfo | `urn:isds:GetOwnerInfo` | `/isds/ws` | `boxId` |
 | GetUserInfo | `urn:isds:GetUserInfo` | `/isds/ws` | `userId` |
 
+`CreateMessage` attachment limits are inclusive: 0–50 attachment children and
+at most 100 MiB of decoded attachment bytes in the synthetic adapter profile.
+The SOAP count fault is raised during wire parsing, before normalization; the
+decoded-byte check is applied while normalizing attachment content. The raw
+SOAP XML request remains subject to the separate 100 MiB wire-size limit.
+
 SOAP 1.1 faults contain a stable error code, safe message, request ID, and
 correlation ID. Raw XML, upstream fault bytes, and normalized adapter results
 remain separate in `SoapExchange`. `/isds/ws2` is reserved for the pinned
