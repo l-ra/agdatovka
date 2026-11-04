@@ -9,6 +9,8 @@ services:
       objectstore: {condition: service_started}
     read_only: true
     tmpfs: [/tmp]
+    volumes:
+      - /var/lib/agdatovka/data:/data
     user: "10001:10001"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health/ready', timeout=2)"]
@@ -25,6 +27,8 @@ services:
       objectstore: {condition: service_started}
     read_only: true
     tmpfs: [/tmp]
+    volumes:
+      - /var/lib/agdatovka/data:/data
     user: "10001:10001"
   web:
     build:
