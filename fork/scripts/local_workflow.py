@@ -81,12 +81,33 @@ def main() -> int:
                 return value
 
             def soap_request(operation: str, values: dict[str, str], *, request_id: str, attachments=None):
+                certificate = {
+                    "fingerprint": "sha256:" + "b" * 64,
+                    "anchorFingerprint": "sha256:" + "a" * 64,
+                    "issuer": "Synthetic Test CA",
+                    "notBefore": "2026-01-01T00:00:00Z",
+                    "notAfter": "2027-01-01T00:00:00Z",
+                    "san": ["isds.synthetic.test"],
+                    "keyUsage": ["digitalSignature", "keyEncipherment"],
+                    "chainValid": True,
+                    "revocation": "good",
+                }
+                box_id = values.get("recipientBoxId") or values.get("boxId") or "synthetic-box-002"
+                application_auth = {
+                    "boxId": box_id,
+                    "application": "isds-soap",
+                    "nonce": "synthetic_nonce_" + request_id,
+                    "issuedAt": "2026-11-04T00:00:00Z",
+                    "expiresAt": "2026-11-04T23:59:00Z",
+                }
                 status, _, response, exchange = soap.handle(
                     "POST", "/isds/ws", {
                         "content-type": "text/xml; charset=utf-8",
                         "soapaction": SOAP_ACTIONS[operation],
                         "x-request-id": request_id,
                         "correlation-id": "corr_" + request_id,
+                        "x-isds-client-certificate": json.dumps(certificate),
+                        "x-isds-application-auth": json.dumps(application_auth),
                     }, soap_envelope(operation, values, attachments))
                 if status != 200 or exchange.normalized_result is None or b"Response" not in response:
                     raise RuntimeError(f"SOAP {operation} returned {status}")
@@ -115,8 +136,8 @@ def main() -> int:
             export_result = request("GET", f"/api/v1/exports/{export['id']}", token=token)
             soap_results = {
                 "login": soap_request("Authenticate", {"requestId": "soap-login-001", "login": "synthetic-login"}, request_id="soap-login-001"),
-                "list": soap_request("GetListOfMessages", {"boxId": "synthetic-box-001", "from": "2026-10-30", "to": "2026-10-31"}, request_id="soap-list-001"),
-                "send": soap_request("CreateMessage", {"messageId": "synthetic-msg-001", "subject": "Synthetic notice", "recipientBoxId": "synthetic-recipient-box"}, attachments=[{"filename": "synthetic.txt", "mediaType": "text/plain", "contentBase64": base64.b64encode(content).decode("ascii")}], request_id="soap-send-001"),
+                "list": soap_request("GetListOfMessages", {"boxId": "synthetic-box-002", "from": "2026-10-30", "to": "2026-10-31"}, request_id="soap-list-001"),
+                "send": soap_request("CreateMessage", {"messageId": "synthetic-msg-001", "subject": "Synthetic notice", "recipientBoxId": "synthetic-box-002"}, attachments=[{"filename": "synthetic.txt", "mediaType": "text/plain", "contentBase64": base64.b64encode(content).decode("ascii")}], request_id="soap-send-001"),
                 "receive": soap_request("GetMessage", {"messageId": "synthetic-msg-001"}, request_id="soap-receive-001"),
                 "deliveryReceipt": soap_request("GetDeliveryInfo", {"messageId": "synthetic-msg-001"}, request_id="soap-receipt-001"),
             }
