@@ -50,10 +50,12 @@ the repository. Migration of existing data is out of scope.
 
 ## Current review gate
 
-Independent adverse review **AGDA-64** remains active. Release integration and
-GitHub mirror verification **AGDA-65** remain pending. This milestone is
-therefore a synthetic compatibility implementation/evidence update, not a
-release approval.
+Independent adverse review **AGDA-64** has completed and recorded two open
+findings: a SOAP route trust/authentication bypass and an attachment-count
+limit mismatch. Release integration and GitHub mirror verification
+**AGDA-65** are blocked pending that follow-up. This milestone is therefore a
+synthetic compatibility implementation/evidence update, not a release
+approval.
 
 ## Factual agent statement
 
@@ -65,6 +67,7 @@ and does not extend its scope.
 
 ## Next verifiable steps
 
-Complete the independent adverse review and release-integration/mirror gates,
-then run separately approved synthetic performance scenarios. Any future
-provider or production claim requires new, explicitly scoped evidence.
+Remediate and independently re-test the AGDA-64 findings, then complete the
+AGDA-65 release-integration/mirror gates and separately approved synthetic
+performance scenarios. Any future provider or production claim requires new,
+explicitly scoped evidence.
