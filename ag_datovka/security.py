@@ -5,6 +5,8 @@ import hashlib
 import hmac
 import json
 import re
+import secrets
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Mapping
@@ -32,9 +34,11 @@ class TrustProfile:
         return cls(str(value["name"]), str(value["version"]), anchors, issuers, hosts, tuple(value.get("requiredKeyUsage", cls.required_key_usage)), str(revocation))
 
 def validate_certificate(cert: Mapping[str, Any], profile: TrustProfile, *, hostname: str, now: datetime | None = None) -> dict[str, Any]:
-    required = ("fingerprint", "issuer", "notBefore", "notAfter", "san", "keyUsage", "chainValid", "revocation")
+    required = ("fingerprint", "anchorFingerprint", "issuer", "notBefore", "notAfter", "san", "keyUsage", "chainValid", "revocation")
     if any(k not in cert for k in required): raise TrustError("certificate_incomplete", "Certificate facts are incomplete.")
     if not cert["chainValid"]: raise TrustError("invalid_chain", "Certificate chain is not valid to a configured anchor.")
+    anchor = cert["anchorFingerprint"]
+    if anchor not in profile.anchors: raise TrustError("untrusted_anchor", "Certificate chain terminates at an unconfigured trust anchor.")
     if cert["issuer"] not in profile.issuers: raise TrustError("unknown_ca", "Certificate issuer is not allowed.")
     now = now or datetime.now(timezone.utc)
     if _time(cert["notBefore"]) > now or _time(cert["notAfter"]) < now: raise TrustError("certificate_expired", "Certificate is outside its validity window.")
@@ -42,6 +46,90 @@ def validate_certificate(cert: Mapping[str, Any], profile: TrustProfile, *, host
     if hostname not in profile.hostnames or hostname not in cert["san"]: raise TrustError("wrong_hostname", "Hostname is not allowed by profile and certificate SAN.")
     if set(profile.required_key_usage) - set(cert["keyUsage"]): raise TrustError("wrong_key_usage", "Certificate key usage is insufficient.")
     return {"status": "valid", "fingerprint": cert["fingerprint"], "profile": profile.name, "version": profile.version, "hostname": hostname}
+
+
+def validate_mtls_identity(
+    cert: Mapping[str, Any],
+    profile: TrustProfile,
+    *,
+    hostname: str,
+    box_id: str,
+    bindings: Mapping[str, Any],
+    application: str = "isds-soap",
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Validate the synthetic mTLS peer and its server-side box binding.
+
+    ``bindings`` is deliberately supplied by the caller's policy store, never
+    by the wire request. Values may be a fingerprint or a mapping containing
+    ``fingerprint``/``application``/``status``. Private keys are not accepted.
+    """
+    certificate = validate_certificate(cert, profile, hostname=hostname, now=now)
+    binding = bindings.get(box_id)
+    if isinstance(binding, str):
+        expected_fingerprint, expected_application, state = binding, application, "active"
+    elif isinstance(binding, Mapping):
+        expected_fingerprint = binding.get("fingerprint")
+        expected_application = binding.get("application", application)
+        state = binding.get("state", "active")
+    else:
+        raise TrustError("identity_binding_failed", "No certificate binding exists for the requested box.")
+    if state not in {"active", "overlap"} or expected_application != application:
+        raise TrustError("identity_binding_failed", "The certificate binding is not active for this application.")
+    if certificate["fingerprint"] != expected_fingerprint:
+        raise TrustError("identity_binding_failed", "The client certificate is not bound to the requested box.")
+    return {**certificate, "boxId": box_id, "application": application, "bindingState": state}
+
+
+def validate_isds_auth(
+    auth: Mapping[str, Any],
+    *,
+    box_id: str,
+    application: str = "isds-soap",
+    used_nonces: set[str] | None = None,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Validate synthetic SOAP application authentication, including replay.
+
+    The nonce store is owned by the caller and must be durable/atomic in a
+    deployed verifier. This helper consumes a nonce only after all checks pass.
+    """
+    required = ("boxId", "application", "nonce", "issuedAt", "expiresAt")
+    if any(key not in auth for key in required):
+        raise TrustError("invalid_application_auth", "Application authentication fields are incomplete.")
+    if auth["boxId"] != box_id or auth["application"] != application:
+        raise TrustError("identity_binding_failed", "Application authentication is not bound to this box or application.")
+    nonce = auth["nonce"]
+    if not isinstance(nonce, str) or not re.fullmatch(r"[A-Za-z0-9_-]{16,128}", nonce):
+        raise TrustError("invalid_application_auth", "Application authentication nonce is invalid.")
+    now = now or datetime.now(timezone.utc)
+    issued, expires = _time(auth["issuedAt"]), _time(auth["expiresAt"])
+    if issued > now or expires <= now or expires <= issued:
+        raise TrustError("expired_application_auth", "Application authentication is outside its validity window.")
+    if used_nonces is not None and nonce in used_nonces:
+        raise TrustError("replayed_application_auth", "Application authentication nonce has already been used.")
+    if used_nonces is not None:
+        used_nonces.add(nonce)
+    return {"status": "authenticated", "boxId": box_id, "application": application, "nonce": nonce,
+            "issuedAt": issued.isoformat(), "expiresAt": expires.isoformat()}
+
+
+def synthetic_nonce() -> str:
+    """Generate a CI-safe nonce; this is not a credential or private key."""
+    return secrets.token_urlsafe(24)
+
+
+def unauthorized_soap_fault(code: str = "authentication_failed") -> bytes:
+    """Return a stable, wire-safe SOAP fault without trust or credential detail."""
+    safe_code = code if re.fullmatch(r"[a-z0-9_]{1,64}", code) else "authentication_failed"
+    envelope = ET.Element("{http://schemas.xmlsoap.org/soap/envelope/}Envelope")
+    body = ET.SubElement(envelope, "{http://schemas.xmlsoap.org/soap/envelope/}Body")
+    fault = ET.SubElement(body, "{http://schemas.xmlsoap.org/soap/envelope/}Fault")
+    ET.SubElement(fault, "faultcode").text = "Client.Authentication"
+    ET.SubElement(fault, "faultstring").text = "Authentication failed"
+    detail = ET.SubElement(fault, "detail")
+    ET.SubElement(detail, "code").text = safe_code
+    return ET.tostring(envelope, encoding="utf-8", xml_declaration=True)
 
 def validate_endpoint(value: Mapping[str, Any]) -> dict[str, Any]:
     scheme, host, allow = value.get("scheme"), value.get("hostname"), value.get("allowList", [])

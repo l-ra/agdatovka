@@ -13,12 +13,24 @@ Implemented source:
   keys, real anchors, accounts, or production hosts.
 
 Negative coverage includes expired, wrong-host, wrong-key-usage, revoked, and
-unknown-CA certificates, plus HTTP and embedded-secret rejection. Rotation is
-represented by versioned handles and staged state; the provider handshake must
-complete before an active handle is switched.
+unknown-CA certificates, plus HTTP and embedded-secret rejection. The synthetic
+handshake verifier now separately validates the configured chain anchor, SAN and
+issuer policy, key usage, revocation, certificate-to-box/application binding,
+rotation overlap, and application-auth nonce expiry/replay. Unauthorized SOAP
+responses use a stable fault without certificate, token, or endpoint details.
+OIDC bearer tokens remain management authentication only; they are never treated
+as an ISDS certificate identity.
 
-Verification: `python3 -m unittest tests.test_security_boundary
-tests.test_management_api -q`.
+Verification:
+
+```text
+python3 -m unittest tests.test_security_boundary tests.test_oidc_security -v
+python3 -m unittest discover -s tests -q
+git diff --check
+```
+
+The repository contains no private keys, real credentials, or production
+endpoints in the synthetic trust fixtures.
 
 The concurrently materialized pipeline tests have unrelated failures in
 `tests/test_pipeline.py`; those files are outside this security change.
