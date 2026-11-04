@@ -41,6 +41,7 @@ class AccessibleManagementUiTest(unittest.TestCase):
             self.assertIn(endpoint, self.js)
         self.assertIn('request("")', self.js)
         self.assertIn('Idempotency-Key', self.js)
+        self.assertIn('headers: { ...headers(false), ...(options.headers || {}) }', self.js)
         self.assertIn('fieldErrors', self.js)
         self.assertNotRegex(self.js, r'innerHTML|document\.write')
 

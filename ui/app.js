@@ -16,7 +16,11 @@
     return result;
   };
   async function request(path, options = {}) {
-    const response = await fetch(`${state.base}${path}`, options);
+    // Every API request is authenticated. Keeping this at the transport
+    // boundary prevents read-only actions from silently dropping the bearer
+    // token when a caller omits per-request options.
+    const requestOptions = { ...options, headers: { ...headers(false), ...(options.headers || {}) } };
+    const response = await fetch(`${state.base}${path}`, requestOptions);
     const value = response.status === 204 ? {} : await response.json();
     if (!response.ok) throw value;
     return value;
