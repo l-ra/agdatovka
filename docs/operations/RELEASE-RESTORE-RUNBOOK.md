@@ -11,8 +11,12 @@ authorize production release or real-data access.
    approved migration runner. Record the migration identifier and checksum in
    the release manifest; never create a production schema by importing the
    SQLite fixture.
-3. Run contract, unit, security, secret-scan, compatibility, and documentation
-   checks. Performance scenarios are checked for completeness but not executed.
+3. Run contract, unit, security, secret-scan, compatibility, documentation, and
+   static-asset deployment checks. `tests/test_static_asset_deployment.py`
+   must verify that the web image copies both `ui/` applications, that HTML
+   references the build-derived asset version, and that nginx revalidates HTML
+   while immutably caching only versioned JS/CSS. Performance scenarios are
+   checked for completeness but not executed.
 4. Confirm the exact commit and source URLs are pushed to the GitHub mirror.
 5. Hand the task to the Release Integration Engineer. Only that role performs
    the local `git merge --no-ff` into the integration checkout, preserving

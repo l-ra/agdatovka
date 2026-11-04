@@ -6,6 +6,15 @@ ROOT = Path(__file__).parents[1]
 
 
 class StaticAssetDeploymentTest(unittest.TestCase):
+    def test_release_image_copies_every_repository_ui_asset(self):
+        dockerfile = (ROOT / "deploy/web.Dockerfile").read_text(encoding="utf-8")
+        self.assertIn("COPY ui/ /usr/share/nginx/html/", dockerfile)
+        for relative in (
+            "ui/index.html", "ui/app.js", "ui/styles.css",
+            "ui/user/index.html", "ui/user/app.js", "ui/user/styles.css",
+        ):
+            self.assertTrue((ROOT / relative).is_file(), relative)
+
     def test_web_image_packages_both_static_apps_and_derives_asset_version(self):
         dockerfile = (ROOT / "deploy/web.Dockerfile").read_text(encoding="utf-8")
         self.assertIn("COPY ui/ /usr/share/nginx/html/", dockerfile)
