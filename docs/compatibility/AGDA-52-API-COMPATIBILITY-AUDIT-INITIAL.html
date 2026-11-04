@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="cs">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AGDA-52 – audit kompatibility veřejných API</title>
+  <style>
+    :root { --ink:#17212b; --muted:#5e6b76; --line:#d9e1e7; --paper:#fff; --wash:#f3f7fa; --blue:#075985; --green:#166534; --amber:#92400e; --red:#991b1b; }
+    * { box-sizing:border-box; }
+    body { margin:0; color:var(--ink); background:var(--wash); font:16px/1.55 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+    main { max-width:1180px; margin:0 auto; padding:34px 22px 60px; }
+    header, section { background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:24px; margin:0 0 18px; box-shadow:0 4px 16px #0b294208; }
+    header { background:linear-gradient(135deg,#073b4c,#075985); color:#fff; border:0; }
+    h1,h2,h3 { line-height:1.2; margin:0 0 12px; }
+    h1 { font-size:clamp(28px,4vw,46px); max-width:900px; }
+    h2 { font-size:25px; color:#0c4a6e; border-bottom:1px solid var(--line); padding-bottom:8px; }
+    h3 { font-size:18px; margin-top:20px; }
+    p { margin:9px 0; }
+    .eyebrow { text-transform:uppercase; letter-spacing:.11em; font-weight:700; font-size:12px; opacity:.8; }
+    .subtitle { font-size:20px; max-width:840px; margin-top:14px; }
+    .meta { display:flex; flex-wrap:wrap; gap:9px; margin-top:20px; }
+    .pill { display:inline-block; border-radius:999px; padding:4px 10px; font-size:13px; font-weight:700; background:#e0f2fe; color:#075985; }
+    header .pill { background:#ffffff22; color:#fff; border:1px solid #ffffff45; }
+    .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px; }
+    .card { border:1px solid var(--line); border-radius:10px; padding:15px; background:#fbfdfe; }
+    .metric { font-size:31px; font-weight:800; line-height:1; margin-bottom:7px; }
+    .good { color:var(--green); } .warn { color:var(--amber); } .bad { color:var(--red); } .info { color:var(--blue); }
+    table { width:100%; border-collapse:collapse; margin:12px 0; font-size:14px; }
+    th,td { text-align:left; vertical-align:top; border-bottom:1px solid var(--line); padding:10px 8px; }
+    th { color:#164e63; background:#f0f9ff; }
+    code { background:#eef2f5; padding:1px 4px; border-radius:4px; font-size:.92em; }
+    pre { overflow:auto; background:#10212b; color:#e7f4fb; padding:14px; border-radius:8px; }
+    a { color:#075985; }
+    header a { color:#dff5ff; }
+    .notice { border-left:5px solid var(--amber); background:#fffbeb; padding:12px 15px; }
+    .approval { border-left:5px solid var(--blue); background:#eff6ff; padding:14px 16px; }
+    .small { color:var(--muted); font-size:14px; }
+    ul { margin:8px 0 8px 22px; }
+    footer { color:var(--muted); font-size:13px; padding:5px 4px; }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="eyebrow">AGDA-52 · počáteční stav ke schválení</div>
+    <h1>Audit kompatibility veřejných API a autentizace</h1>
+    <p class="subtitle">Nezávislá reimplementace AG Datovka 2 má zachovat pozorovatelné workflow a veřejné rozhraní ISDS. Tento dokument odděluje současný syntetický management API od skutečné kompatibility SOAP/WSDL, popisuje zjištěné mezery a předkládá návrh změn.</p>
+    <div class="meta"><span class="pill">stav: čeká na lidské schválení</span><span class="pill">syntetické prostředí</span><span class="pill">bez komunikace s reálným ISDS</span><span class="pill">baseline testy: 74/74</span></div>
+  </header>
+
+  <section>
+    <h2>1. Závěr v jedné minutě</h2>
+    <div class="grid">
+      <div class="card"><div class="metric good">74/74</div><div>deterministických testů repozitáře prošlo dne 4. 11. 2026.</div></div>
+      <div class="card"><div class="metric info">v1</div><div>management API je použitelné jako vlastní moderní kontrakt pro UI a syntetické workflow.</div></div>
+      <div class="card"><div class="metric bad">0</div><div>implementovaných SOAP/WSDL endpointů ISDS na runtime hranici.</div></div>
+      <div class="card"><div class="metric bad">kritické</div><div>mapování lifecycle událostí je proti aktuálnímu veřejnému popisu částečně nesprávné.</div></div>
+    </div>
+    <p><strong>Verdikt:</strong> současný stav neprokazuje, že existující CZ.NIC Datovka klient bude fungovat bez úprav při přesměrování na stejnou adresu. Prokazuje pouze syntetický interní kontrakt, parsování vybraných fixture a oddělenou bezpečnostní logiku.</p>
+    <div class="notice"><strong>Schvalovací hranice:</strong> níže uvedený návrh je plán implementace. V této revizi se nemění runtime kód, adapter ani autentizace. Po schválení se změny provedou v samostatném implementačním kroku a tato prezentace se doplní o skutečný výsledek.</div>
+  </section>
+
+  <section>
+    <h2>2. Zdroje a způsob posouzení</h2>
+    <p>Posouzení kombinuje zdroje v repozitáři, čtení aktuálních veřejných dokumentů DIA a běh lokálních testů. Nebyl použit živý ISDS endpoint, účet, certifikát ani produkční data.</p>
+    <table>
+      <thead><tr><th>Zdroj</th><th>Co ověřuje</th><th>Výsledek pro tento audit</th></tr></thead>
+      <tbody>
+        <tr><td><a href="https://datovka.gov.cz/info/cs/2053.html">Provozní řád ISDS</a> (DIA, verze platná od 26. 6. 2025)</td><td>veřejné členění služeb, technické přílohy a přístupy třetích stran</td><td>veřejné rozhraní je Web Services/WSDL; v technické příloze jsou dm_operations, dm_info, db_access, ChangePassword a vyhledávání.</td></tr>
+        <tr><td><a href="https://datovka.gov.cz/info/cs/2037.html">VoDZ a technické změny</a></td><td>WSDL 3.04, endpoint <code>ws2</code>, 100 MB a 50 příloh</td><td>repozitář má pouze syntetický parser; HTTP ingress je standardně limitován na 16 MiB.</td></tr>
+        <tr><td><a href="https://datovka.gov.cz/info/cs/help/8.4.text.html">Externí aplikace a certifikáty</a></td><td>mTLS/certifikát spisové služby a přístupové rozhraní</td><td>repozitář validuje metadata certifikátu, ale runtime handshake ani mapování certifikátu na identitu není implementováno.</td></tr>
+        <tr><td><a href="https://datovka.gov.cz/info/cs/help/5.4.text.html">Doručovací události</a></td><td>význam EV0–EV13, včetně rozdílů EV2/EV5/EV11/EV12/EV13</td><td>stávající mapa v <code>ag_datovka/isds_adapter.py</code> zaměňuje několik významů a část kódů odmítá.</td></tr>
+        <tr><td><a href="docs/requirements/SOURCE-REGISTER.md">SOURCE-REGISTER.md</a>, <a href="docs/compatibility/PUBLIC-INTERFACES.md">PUBLIC-INTERFACES.md</a></td><td>repozitářem deklarovaný rozsah, zdroje, testovací hranice</td><td>správně odděluje migraci a produkční přístup, ale některé položky stále označuje jako „specified“, nikoli „verified“.</td></tr>
+        <tr><td><a href="docs/management/openapi.v1.json">OpenAPI v1</a>, <a href="fixtures/api/v1/contract.json">fixture kontrakt</a>, runtime a testy</td><td>vlastní management API, hlavičky, auth a side effects</td><td>moderní syntetická vrstva je široká, ale dokumentace a runtime mají drobný drift.</td></tr>
+      </tbody>
+    </table>
+    <p class="small">Veřejné dokumenty byly pouze čteny v UTC dne 4. 11. 2026. V implementaci musí být technické přílohy WSDL/XSD staženy, verziově připnuty a opatřeny kontrolním součtem; tato prezentace nepředstírá, že jejich přesná těla jsou už v repozitáři.</p>
+  </section>
+
+  <section>
+    <h2>3. Stav na začátku úkolu</h2>
+    <table>
+      <thead><tr><th>Oblast</th><th>Co skutečně existuje</th><th>Stav kompatibility</th></tr></thead>
+      <tbody>
+        <tr><td>Management API</td><td><code>/api/v1</code> pro boxy, identity, role, oprávnění, zprávy, přílohy, operace, účtenky, export, audit, retention a syntetický worker.</td><td><span class="pill">implementováno synteticky</span> vlastním kontraktem, nikoli ISDS wire kontraktem.</td></tr>
+        <tr><td>ISDS transport</td><td><code>IsdsCompatibilityAdapter</code> nabízí <code>parse_*()</code> nad JSON/XML fixture. Sám uvádí „no network“ a fixture kontrakt má <code>ISDS SOAP</code> v <code>notImplementedByDesign</code>.</td><td><span class="pill" style="background:#fee2e2;color:#991b1b">neimplementováno</span> žádný SOAP 1.1/WSDL server, namespaces, fault envelope ani operace.</td></tr>
+        <tr><td>Lifecycle</td><td>Mapa EV0, EV2, EV3, EV5, EV6, EV8, EV11 do interních názvů.</td><td><span class="pill" style="background:#fee2e2;color:#991b1b">nesoulad</span> EV2, EV3, EV5 a EV11 mají jiné významy; EV12/EV13 chybí; kontext typu zprávy se nezohledňuje.</td></tr>
+        <tr><td>Autentizace managementu</td><td>Syntetický <code>dev:</code> token pro test, v deploy/production zakázaný; volitelný podepsaný HS256 OIDC-shaped token s issuer/audience/tenant/subject/revocation.</td><td><span class="pill">ověřeno pouze synteticky</span> nejde vydávat za ISDS autentizaci ani plnohodnotný produkční OIDC provider.</td></tr>
+        <tr><td>Certifikáty a trust</td><td>Validace předaných faktů certifikátu, hostname/SAN, issueru, key usage, revokace; oddělené trust/endpoint/key-handle záznamy.</td><td><span class="pill">unit-tested</span> chybí skutečná TLS/mTLS terminace, klientský certifikát → identita a rotation handshake.</td></tr>
+        <tr><td>Velké zprávy</td><td>Parser přijme syntetický VoDZ profil do 100 MB/50 příloh; WSGI server má ve výchozím nastavení 16 MiB limit.</td><td><span class="pill" style="background:#fee2e2;color:#991b1b">nekompatibilní na transportu</span> chybí streaming/chunking a veřejné VoDZ metody.</td></tr>
+        <tr><td>Receipt/ZFO</td><td>Syntetické XML a prefixované <code>SYNTHETIC-ZFO</code>; hash, raw bytes a fail-closed negativní fixture.</td><td><span class="pill">syntetická evidence</span> neprokazuje parsing skutečného podepsaného ZFO/XML schématu.</td></tr>
+        <tr><td>Datovka desktop</td><td>Oddělený fork plan, profily a offline smoke harness; živý build proti AG endpointu není doložen.</td><td><span class="pill" style="background:#fef3c7;color:#92400e">plánováno</span> bez end-to-end důkazu „bez změn klienta“.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>4. Kritické konkrétní nálezy</h2>
+    <div class="grid">
+      <div class="card"><h3 class="bad">A — Chybí veřejná wire vrstva</h3><p>Oficiální popis uvádí mimo jiné <code>CreateMessage</code>, <code>MessageDownload</code>, <code>GetDeliveryInfo</code>, seznamy zpráv, <code>GetOwnerInfoFromLogin</code>, <code>ChangeISDSPassword</code> a VoDZ metody. Runtime nic z toho neposkytuje jako SOAP/WSDL endpoint.</p></div>
+      <div class="card"><h3 class="bad">B — Špatná semantika lifecycle</h3><p>Aktuální veřejný popis rozlišuje doručení fikcí, dodání, přihlášení oprávněné/pověřené osoby a přihlášení aplikace. Jedna globální mapa v adapteru tuto informaci ztrácí a některé kódy překládá chybně.</p></div>
+      <div class="card"><h3 class="bad">C — Autentizace je jiná vrstva</h3><p>HS256 bearer token a testovací <code>dev:</code> token chrání moderní management API. To není kompatibilní náhrada za veřejné autentizační mechanismy ISDS aplikací třetích stran ani za mTLS.</p></div>
+      <div class="card"><h3 class="warn">D — Kontraktový drift</h3><p>Fixture deklaruje <code>Correlation-Id</code> jako povinné pro mutace. Runtime jej při chybě doplní z request ID; ověřený POST bez hlavičky vrací <code>201</code>. OpenAPI navíc definuje <code>IdempotencyKey</code>, ale operace jej systematicky neodkazují.</p></div>
+    </div>
+    <h3>Reprodukované baseline důkazy</h3>
+    <pre>$ python3 -m unittest discover -v
+Ran 74 tests in 0.613s
+OK
+
+# POST /api/v1/boxes bez Correlation-Id, s Authorization + Idempotency-Key
+status: 201
+fixture claim: Correlation-Id je required</pre>
+    <p class="small">Časy a náhodné identifikátory v lokálním výstupu nejsou součástí důkazní hodnoty. Důležité je, že testy procházejí a samostatná probe reprodukuje rozpor mezi deklarací a runtime validací.</p>
+  </section>
+
+  <section>
+    <h2>5. Navržená úprava po schválení</h2>
+    <ol>
+      <li><strong>Připnout veřejný kontrakt:</strong> uložit syntetickou kopii relevantních WSDL/XSD a technických příloh s verzí, SHA-256 a source profile; oddělit dm_operations, dm_info, db_access, ChangePassword, search a VoDZ.</li>
+      <li><strong>Přidat kompatibilní gateway:</strong> SOAP 1.1 endpoint na explicitním syntetickém hostu, stejné namespaces/operation names/faulty jako připnutá specifikace. Gateway bude mapovat na stávající domain/pipeline a zůstane bez síťového volání na reálný ISDS.</li>
+      <li><strong>Opravit lifecycle model:</strong> zachovat původní EV kód, typ zprávy, zdrojový profil, raw datum a kontext; mapovat EV2/EV3/EV5/EV6/EV8/EV11 podle zdroje a doplnit EV12/EV13 i historické EV1/EV4 jako explicitně deprecated/legacy.</li>
+      <li><strong>Oddělit auth profily:</strong> management OIDC zůstane moderní kontrakt; kompatibilní adapter dostane syntetické profily pro přístupové údaje, klientský certifikát/mTLS a další podporované cesty. Každý profil bude mít capabilities, trust anchor, identity binding, revokaci a negativní fixture. Identita občana se nebude tvrdit jako podporovaná přes third-party web services bez důkazu.</li>
+      <li><strong>Rozšířit trust boundary:</strong> gateway/proxy bude skutečně vynucovat TLS/mTLS a předávat pouze ověřený identity binding; privátní klíč zůstane mimo API v secret-store handle. Přidat rotation, expired/revoked/wrong-host a wrong-issuer handshakes.</li>
+      <li><strong>Vyřešit velikosti a přílohy:</strong> nahradit 16 MiB request gate streamovaným/chunked ingestem, parametrizovat běžný limit 20 MiB a VoDZ 100 MB/50 příloh podle profilu, přidat resumable upload a ověřit skutečné boundary rejection.</li>
+      <li><strong>Urovnat vlastní API:</strong> buď vynutit <code>Correlation-Id</code>, nebo odstranit jeho povinnost z fixture; doplnit OpenAPI o všechny skutečné management routes a header references. Přidat contract test, že dokumentace a runtime jsou shodné.</li>
+      <li><strong>Prokázat klientské workflow:</strong> rozšířit offline fixture, spustit fork proti lokálnímu AG syntetickému endpointu a porovnat stejný workflow s oficiálním veřejným testem pouze po samostatném schválení a s účtem vytvořeným pro test. Výsledek musí být klasifikován jako kompatibilní, záměrná moderní odchylka nebo blokující rozdíl.</li>
+    </ol>
+  </section>
+
+  <section>
+    <h2>6. Akceptační brána implementace</h2>
+    <table>
+      <thead><tr><th>Gate</th><th>Požadovaný důkaz</th><th>Bez čeho nelze tvrdit kompatibilitu</th></tr></thead>
+      <tbody>
+        <tr><td>Wire</td><td>WSDL/XSD contract tests, SOAP envelopes/faults, operation matrix, namespaces a endpoint profiles.</td><td>Nelze tvrdit, že stávající klient funguje bez změny.</td></tr>
+        <tr><td>Auth/trust</td><td>synthetic username/password, certificate/mTLS, token, revocation/rotation a identity-binding negative fixtures.</td><td>Nelze zaměňovat moderní management auth za ISDS auth.</td></tr>
+        <tr><td>Semantics</td><td>EV0–EV13 matrix včetně message type, fikce, login actor, receipts a raw evidence.</td><td>Nelze tvrdit lifecycle/receipt kompatibilitu.</td></tr>
+        <tr><td>Payload</td><td>20 MiB and VoDZ 100 MB boundaries, 50 attachments, streamed/resumable transfer, digest and retry evidence.</td><td>Nelze tvrdit velké zprávy.</td></tr>
+        <tr><td>Client</td><td>Datovka fork smoke: login, send, receive, receipt, search, export; redacted manifest and pinned commits.</td><td>Nelze tvrdit no-change workflow.</td></tr>
+        <tr><td>Safety</td><td>all tests, production-host/secret scans, independent security review, no real ISDS interaction in default CI.</td><td>Nelze uzavřít release gate.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="approval">
+    <h2>7. Požadované rozhodnutí člověka</h2>
+    <p>Schvalte prosím tento rozsah implementace: připnuté WSDL/XSD fixture, syntetický SOAP/WSDL gateway, oprava lifecycle semantiky EV kódů, oddělené auth/trust profily, streamované VoDZ hranice a synchronizace OpenAPI/runtime kontraktu. Schválení neuděluje přístup k reálnému ISDS a neumožňuje použití produkčních údajů.</p>
+    <p><strong>Po schválení:</strong> implementace proběhne v navazujícím kroku, přibudou testy a důkazy, a tato prezentace dostane oddíl „skutečně provedeno“ s výsledkem každé akceptační brány. Do té doby je tento dokument pouze auditní baseline a plán.</p>
+  </section>
+
+  <footer>
+    AG Datovka 2 · AGDA-52 · generated for human review · scope: standalone reimplementation, no migration and no real ISDS interaction.
+  </footer>
+</main>
+</body>
+</html>
