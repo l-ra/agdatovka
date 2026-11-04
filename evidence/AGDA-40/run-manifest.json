@@ -1,0 +1,25 @@
+{
+  "schema": "agdatovka.release-evidence.v1",
+  "issue": "AGDA-40",
+  "runDate": "2026-11-02",
+  "sourceCommit": "94976f2234d7d96b09d3527be12acd46c39eeddd",
+  "status": "synthetic-gates-passed-container-gates-deferred",
+  "tests": {
+    "unittestDiscover": {"command": "python3 -m unittest discover -v", "result": "69 passed"},
+    "qaAndPerformance": {"command": "python3 -m unittest tests.test_qa_conformance tests.test_performance_readiness -v", "result": "16 passed"},
+    "performanceValidation": {"command": "python3 -m qa.performance_readiness --validate", "result": "valid; load not run"},
+    "cleanArchive": {"command": "python3 -m unittest discover -s tests -p 'test*.py' -q", "result": "69 passed"},
+    "workflow": {"command": "python3 fork/scripts/local_workflow.py", "result": "pass; delivered; redacted"},
+    "health": {"endpoints": ["/health/live", "/health/ready"], "result": "pass"},
+    "runtimeBoundary": {"result": "pass; deploy durable endpoints accepted and fixture settings rejected"}
+  },
+  "performance": {"status": "deferred", "loadExecuted": false, "scenarioTargetMessagesPerMinute": 1000},
+  "container": {
+    "dockerBuild": "blocked: docker executable unavailable",
+    "composeStartup": "blocked: docker executable unavailable",
+    "sbom": "blocked: no image builder or SBOM tool available",
+    "externalScanners": "blocked: syft/trivy/grype/gitleaks unavailable"
+  },
+  "restore": {"syntheticApiRestore": "passed", "deployProfileBackupRestore": "deferred with container gate"},
+  "limitations": ["synthetic fixtures only", "no provider or production certification", "no performance measurement", "no container/image digest"]
+}

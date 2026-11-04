@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AG Datovka — My messages</title><link rel="stylesheet" href="./styles.css?v=__AGDA_ASSET_VERSION__">
+</head>
+<body>
+  <header class="user-header"><p class="eyebrow">AG Datovka</p><h1>My databox</h1><p>Secure synthetic end-user workspace. This is separate from the management console.</p></header>
+  <main>
+    <div id="error" class="error" role="alert" tabindex="-1" hidden><h2>We could not complete that request</h2><p id="error-text"></p><button id="retry" type="button" class="secondary">Retry</button></div>
+    <section id="login-panel" class="panel" aria-labelledby="login-title"><h2 id="login-title">Sign in</h2><form id="login-form" class="grid"><div><label for="api-base">API base</label><input id="api-base" value="http://127.0.0.1:8080/api/v1" required></div><div><label for="token">Session token</label><input id="token" type="password" autocomplete="current-password" placeholder="dev:&lt;box-id&gt;:&lt;identity-id&gt;" required></div><button type="submit">Sign in</button></form><p id="login-status" class="status" role="status" aria-live="polite">Not signed in.</p></section>
+    <section id="workspace" hidden>
+      <div class="toolbar panel"><div><label for="box-select">Databox</label><select id="box-select"></select></div><p id="session-label" class="status" role="status" aria-live="polite"></p><button id="sign-out" type="button" class="secondary">Sign out</button></div>
+      <nav class="tabs" aria-label="Message folders"><button class="tab active" data-folder="inbox" type="button">Inbox</button><button class="tab" data-folder="outbox" type="button">Outbox</button><button class="tab" data-folder="all" type="button">All messages</button><button id="compose-open" type="button">Compose</button></nav>
+      <section class="panel" aria-labelledby="messages-title"><div class="section-heading"><h2 id="messages-title">Inbox</h2><button id="refresh" class="secondary" type="button">Refresh</button></div><form id="filter-form" class="filter"><div><label for="query">Search</label><input id="query" placeholder="Subject, status, or ID"></div><div><label for="status-filter">Status</label><select id="status-filter"><option value="">Any status</option><option>draft</option><option>queued</option><option>submitting</option><option>delivered</option><option>retry_wait</option><option>failed_terminal</option></select></div><button type="submit">Apply filters</button></form><p id="list-status" class="status" role="status" aria-live="polite">Sign in to load messages.</p><div id="message-list" class="message-list" aria-live="polite"></div></section>
+      <section id="detail-panel" class="panel" aria-labelledby="detail-title" hidden><div class="section-heading"><h2 id="detail-title">Message detail</h2><button id="detail-close" class="secondary" type="button">Close</button></div><div id="detail"></div></section>
+      <section id="compose-panel" class="panel" aria-labelledby="compose-title" hidden><div class="section-heading"><h2 id="compose-title">Compose and send</h2><button id="compose-close" class="secondary" type="button">Close</button></div><form id="compose-form" class="grid"><div><label for="subject">Subject</label><input id="subject" required maxlength="255"></div><div><label for="target-box">Recipient box</label><input id="target-box" required placeholder="synthetic-target"></div><div class="wide"><label for="attachment">Attachment</label><input id="attachment" type="file"><p class="hint">The server verifies byte length and SHA-256 digest before accepting the attachment.</p></div><button type="submit">Create and send</button></form><p id="compose-status" class="status" role="status" aria-live="polite"></p></section>
+      <section class="panel" aria-labelledby="export-title"><h2 id="export-title">Download and export</h2><p class="hint">Download an attachment from message detail or create a server-manifested JSONL export of this box.</p><button id="export" type="button">Create JSONL export</button><a id="export-download" class="download" hidden download="ag-datovka-export.json">Download export manifest</a><p id="export-status" class="status" role="status" aria-live="polite"></p></section>
+    </section>
+  </main>
+  <footer><p>Synthetic fixture only. No production credentials or delivery claims.</p></footer>
+  <script src="./app.js?v=__AGDA_ASSET_VERSION__" defer></script>
+</body>
+</html>
