@@ -23,7 +23,10 @@ class ForkWorkflowTests(unittest.TestCase):
         self.assertEqual(manifest["receiptStatus"], "delivered")
         self.assertEqual(manifest["searchMatches"], 1)
         self.assertEqual(manifest["exportStatus"], "completed")
-        self.assertEqual(manifest["workflow"], ["login/configuration", "send", "retrieve", "lifecycle/receipt", "search", "export"])
+        self.assertEqual(manifest["workflow"], ["login", "list", "send", "receive", "download", "delivery receipt", "search", "export"])
+        self.assertEqual(set(manifest["soapOperations"]), {"login", "list", "send", "receive", "deliveryReceipt"})
+        self.assertEqual(manifest["restChecks"], {"received": True, "downloaded": True, "deliveryReceipt": True})
+        self.assertEqual(manifest["compatibility"]["blockers"], [])
         self.assertNotIn("contentBase64", result.stdout)
         self.assertNotIn("dev:", result.stdout)
 

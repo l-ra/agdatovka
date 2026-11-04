@@ -9,6 +9,7 @@ import os
 import sys
 import tempfile
 import subprocess
+import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from hashlib import sha256
 from pathlib import Path
@@ -17,10 +18,26 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from ag_datovka.app import create_app  # noqa: E402
+from ag_datovka.soap_gateway import ISDS_NS, SOAP_ACTIONS, SOAP_ENV, SyntheticSoapGateway  # noqa: E402
 
 
 def now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def soap_envelope(operation: str, values: dict[str, str], attachments=None) -> bytes:
+    envelope = ET.Element(f"{{{SOAP_ENV}}}Envelope", {"xmlns:soapenv": SOAP_ENV, "xmlns:isds": ISDS_NS})
+    body = ET.SubElement(envelope, f"{{{SOAP_ENV}}}Body")
+    operation_element = ET.SubElement(body, f"{{{ISDS_NS}}}{operation}")
+    for name, value in values.items():
+        ET.SubElement(operation_element, f"{{{ISDS_NS}}}{name}").text = value
+    if attachments is not None:
+        attachments_element = ET.SubElement(operation_element, f"{{{ISDS_NS}}}attachments")
+        for attachment in attachments:
+            item = ET.SubElement(attachments_element, f"{{{ISDS_NS}}}attachment")
+            for name, value in attachment.items():
+                ET.SubElement(item, f"{{{ISDS_NS}}}{name}").text = value
+    return ET.tostring(envelope, encoding="utf-8", xml_declaration=True)
 
 
 def candidate_commit() -> str:
@@ -49,6 +66,8 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="ag-synthetic-") as temp:
         app = create_app(str(Path(temp) / "synthetic.sqlite3"))
         try:
+            soap = SyntheticSoapGateway()
+
             def request(method: str, path: str, body=None, *, token="dev:platform", key=None, headers=None):
                 request_headers = {"Authorization": f"Bearer {token}"}
                 if key:
@@ -61,6 +80,18 @@ def main() -> int:
                     raise RuntimeError(f"{method} {path} returned {status}: {value.get('code', value)}")
                 return value
 
+            def soap_request(operation: str, values: dict[str, str], *, request_id: str, attachments=None):
+                status, _, response, exchange = soap.handle(
+                    "POST", "/isds/ws", {
+                        "content-type": "text/xml; charset=utf-8",
+                        "soapaction": SOAP_ACTIONS[operation],
+                        "x-request-id": request_id,
+                        "correlation-id": "corr_" + request_id,
+                    }, soap_envelope(operation, values, attachments))
+                if status != 200 or exchange.normalized_result is None or b"Response" not in response:
+                    raise RuntimeError(f"SOAP {operation} returned {status}")
+                return exchange.normalized_result
+
             request("POST", "/api/v1/endpoint-profiles", {"name": "ag-synthetic", "scheme": "https", "hostname": "synthetic.local", "allowList": ["synthetic.local"]}, key="workflow-endpoint")
             request("POST", "/api/v1/trust-profiles", {"name": "ag-synthetic-trust", "version": "1", "anchorFingerprints": ["sha256:" + "a" * 64], "allowedIssuers": ["synthetic-ca"], "hostnames": ["synthetic.local"]}, key="workflow-trust")
             box = request("POST", "/api/v1/boxes", {"name": "CZ.NIC synthetic box", "kind": "test", "profile": "ag-synthetic", "ownerSubject": "synthetic-owner"}, key="workflow-box")
@@ -69,15 +100,26 @@ def main() -> int:
             message = request("POST", "/api/v1/messages", {"boxId": box_id, "senderIdentityId": identity_id, "targetBoxId": "synthetic-recipient-box", "subject": "Compatibility synthetic message", "contentDigest": content_digest}, token=token, key="workflow-message")
             message_id = message["id"]
             request("POST", f"/api/v1/messages/{message_id}/attachments", {"filename": "synthetic.txt", "mediaType": "text/plain", "byteLength": len(content), "contentDigest": content_digest, "contentBase64": base64.b64encode(content).decode("ascii")}, token=token, key="workflow-attachment")
+            attachment_list = request("GET", f"/api/v1/messages/{message_id}/attachments", token=token)
+            attachment_id = attachment_list["items"][0]["id"]
             submitted = request("POST", f"/api/v1/messages/{message_id}/submit", {"targetBoxId": "synthetic-recipient-box"}, token=token, key="workflow-submit")
             worker = app.run_worker()
             operation = request("GET", f"/api/v1/operations/{submitted['operationId']}", token=token)
+            received = request("GET", f"/api/v1/messages/{message_id}", token=token)
+            downloaded = request("GET", f"/api/v1/messages/{message_id}/attachments/{attachment_id}", token=token)
             events = request("GET", f"/api/v1/messages/{message_id}/events", token=token)
             receipt_id = worker[0]["receiptId"]
             receipt = request("GET", f"/api/v1/messages/{message_id}/receipts/{receipt_id}", token=token)
             search = request("GET", "/api/v1/messages/search?" + "boxId=" + box_id + "&q=Compatibility", token=token)
             export = request("POST", "/api/v1/exports", {"boxId": box_id, "format": "jsonl"}, token=token, key="workflow-export")
             export_result = request("GET", f"/api/v1/exports/{export['id']}", token=token)
+            soap_results = {
+                "login": soap_request("Authenticate", {"requestId": "soap-login-001", "login": "synthetic-login"}, request_id="soap-login-001"),
+                "list": soap_request("GetListOfMessages", {"boxId": "synthetic-box-001", "from": "2026-10-30", "to": "2026-10-31"}, request_id="soap-list-001"),
+                "send": soap_request("CreateMessage", {"messageId": "synthetic-msg-001", "subject": "Synthetic notice", "recipientBoxId": "synthetic-recipient-box"}, attachments=[{"filename": "synthetic.txt", "mediaType": "text/plain", "contentBase64": base64.b64encode(content).decode("ascii")}], request_id="soap-send-001"),
+                "receive": soap_request("GetMessage", {"messageId": "synthetic-msg-001"}, request_id="soap-receive-001"),
+                "deliveryReceipt": soap_request("GetDeliveryInfo", {"messageId": "synthetic-msg-001"}, request_id="soap-receipt-001"),
+            }
             timestamps["finishedAt"] = now()
             manifest = {
                 "schema": "agdatovka.datovka-fork-run.v1",
@@ -87,7 +129,9 @@ def main() -> int:
                 "agCommit": candidate_commit(),
                 "endpoint": "http://127.0.0.1:0/api/v1 (in-process isolated fixture)",
                 "fixtureIds": [fixture_id, "synthetic-recipient-box"],
-                "workflow": ["login/configuration", "send", "retrieve", "lifecycle/receipt", "search", "export"],
+                "workflow": ["login", "list", "send", "receive", "download", "delivery receipt", "search", "export"],
+                "soapOperations": {name: value["operation"] for name, value in soap_results.items()},
+                "restChecks": {"received": received["id"] == message_id, "downloaded": downloaded["contentDigest"] == content_digest, "deliveryReceipt": receipt["status"] == "delivered"},
                 "messageStatus": operation["status"],
                 "receiptStatus": receipt["status"],
                 "receiptValidation": receipt["validation"],
@@ -95,6 +139,11 @@ def main() -> int:
                 "searchMatches": len(search["items"]),
                 "exportStatus": export_result["status"],
                 "exportManifestDigest": export_result["manifestDigest"],
+                "compatibility": {
+                    "compatible": ["SOAP 1.1 envelope/action/namespace validation", "login/list/send/receive/delivery receipt operation shapes", "REST message download/search/export workflow", "pinned endpoint profile and trust references"],
+                    "intentionalSyntheticLimitation": ["SOAP gateway normalizes accepted operations and does not perform external ISDS delivery", "Datovka desktop Qt build is not run in this dependency-free harness"],
+                    "blockers": [],
+                },
                 "timestamps": timestamps,
                 "redaction": "IDs, content, credentials, and private key material are excluded from this manifest.",
             }
