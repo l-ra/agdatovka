@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="en">
+<html lang="cs">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>AG Datovka 2 — Phase 4 verified integration</title>
+  <title>AG Datovka 2 — synthetic compatibility milestone</title>
   <style>
     :root { color-scheme: light; font: 16px/1.6 system-ui, sans-serif; }
     body { max-width: 58rem; margin: 0 auto; padding: 2rem 1rem 4rem; color: #202124; }
@@ -15,19 +15,33 @@
 <body>
   <main>
     <h1>AG Datovka 2</h1>
-    <p class="note">Phase 4 integration is verified for a synthetic/offline scope. It is not a production release or production-readiness declaration.</p>
-    <h2>Verified</h2>
+    <p class="note">Milestone 4 November 2026: synthetic public-interface compatibility evidence for AG Datovka 2.</p>
+    <h2>What changed</h2>
+    <p>Commit <a href="https://github.com/l-ra/agdatovka/commit/678d6327987c7b05632f0fefc9813bb33a77a525"><code>678d632</code></a> adds synthetic SOAP/WSDL gateway and authentication/trust-boundary conformance evidence alongside the Datovka fork workflow. The repository verification run passed 91 tests and <code>git diff --check</code>.</p>
+    <h2>What is verified</h2>
     <ul>
-      <li><strong>69 tests passed</strong>, including synthetic workflow, health, security, integrity, UI, and runtime-boundary checks.</li>
-      <li>Exact evidence source: <a href="https://github.com/l-ra/agdatovka/commit/3660a354d59f6801c883df8592717481e6b6e264"><code>3660a35</code></a>.</li>
-      <li><a href="reporting/2026-11-02-agda42-phase4.md">Read the full Phase 4 milestone report</a>.</li>
+      <li>SOAP/WSDL operation, envelope/fault, lifecycle, trust, receipt, retry, and boundary fixtures pass.</li>
+      <li>Existing management API and synthetic Datovka workflow regressions remain green.</li>
+      <li>Evidence is tied to the committed <a href="https://github.com/l-ra/agdatovka/blob/678d6327987c7b05632f0fefc9813bb33a77a525/evidence/AGDA-62/README.md">AGDA-62 report</a>.</li>
     </ul>
-    <h2>Not yet verified</h2>
-    <p>Performance/load execution, Docker and Compose gates, image/SBOM/scanner evidence, deploy-profile backup/restore, provider interoperability, HA recovery, legal/compliance assessment, and production certification remain open. Migration remains out of scope. Only synthetic fixtures and redacted manifests were used.</p>
-    <h2>Agent statements</h2>
-    <blockquote>“The dependency-free release matrix and clean archive checks pass for the synthetic scope; container and performance gates still require a separately equipped integration environment.”</blockquote>
-    <p><small>Release Integration Agent — statement grounded in the AGDA-40 evidence.</small></p>
-    <footer>Published from the <code>reporting</code> branch; source and evidence links point to the exact verified commit.</footer>
+    <h2>What this does not prove</h2>
+    <ul>
+      <li>All endpoints, identities, certificates, receipts, message IDs, and payloads are synthetic.</li>
+      <li>No live ISDS endpoint, production credential, real user data, or production release was used.</li>
+      <li>This is not official/live ISDS conformance; performance execution remains deferred.</li>
+      <li>Independent adverse review AGDA-64 and release integration/mirror verification AGDA-65 remain pending.</li>
+    </ul>
+    <h2>Factual agent statement</h2>
+    <blockquote>“This is compatibility evidence for the implemented fixture boundary, not a claim of official or live ISDS conformance.”</blockquote>
+    <p><small>AGDA-62 compatibility evidence statement, sourced from the committed evidence report.</small></p>
+    <h2>Full report and next steps</h2>
+    <p><a href="https://github.com/l-ra/agdatovka/blob/678d6327987c7b05632f0fefc9813bb33a77a525/reporting/2026-11-04-agda66-synthetic-compatibility.md">Full milestone report</a> · <a href="https://github.com/l-ra/agdatovka/blob/678d6327987c7b05632f0fefc9813bb33a77a525/evidence/AGDA-62/README.md">evidence</a></p>
+    <ul>
+      <li>Complete AGDA-64 adverse review and AGDA-65 release-integration/mirror verification.</li>
+      <li>Run separately approved synthetic performance scenarios.</li>
+      <li>Require new scoped evidence before any provider or production claim.</li>
+    </ul>
+    <footer>Report je generovaný z verzovaných podkladů projektu. Zveřejněno z větve <code>reporting</code>; technické podklady jsou v hlavní větvi repozitáře.</footer>
   </main>
 </body>
 </html>
