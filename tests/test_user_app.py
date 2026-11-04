@@ -57,6 +57,9 @@ class UserAppTest(unittest.TestCase):
         self.assertTrue(set(parser.controls) <= parser.labels)
         for marker in ("/session", "/messages", "/attachments", "/read", "/events", "/exports", "Idempotency-Key", "sessionStorage"):
             self.assertIn(marker, js)
+        self.assertIn('value="/api/v1"', html)
+        self.assertNotIn("127.0.0.1:8080/api/v1", html + js)
+        self.assertIn("headers: { ...headers(false), ...(options.headers || {}) }", js)
         self.assertIn("separate from the management console", html)
 
 

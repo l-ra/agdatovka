@@ -1,6 +1,6 @@
 (() => {
   "use strict";
-  const state = { base: "http://127.0.0.1:8080/api/v1", token: "dev:platform", box: null, identities: [], lastOperation: null };
+  const state = { base: "/api/v1", token: "dev:platform", box: null, identities: [], lastOperation: null };
   const $ = (id) => document.getElementById(id);
   const output = (value) => { $("results").textContent = JSON.stringify(value, null, 2); };
   const setError = (error) => {

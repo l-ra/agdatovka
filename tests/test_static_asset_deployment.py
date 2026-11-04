@@ -34,6 +34,20 @@ class StaticAssetDeploymentTest(unittest.TestCase):
             self.assertIn("styles.css?v=__AGDA_ASSET_VERSION__", html)
             self.assertIn("app.js?v=__AGDA_ASSET_VERSION__", html)
 
+    def test_ui_defaults_use_same_origin_api(self):
+        for relative in ("ui/index.html", "ui/user/index.html", "ui/app.js", "ui/user/app.js"):
+            content = (ROOT / relative).read_text(encoding="utf-8")
+            self.assertNotIn("127.0.0.1:8080/api/v1", content, relative)
+        self.assertIn('value="/api/v1"', (ROOT / "ui/index.html").read_text(encoding="utf-8"))
+        self.assertIn('value="/api/v1"', (ROOT / "ui/user/index.html").read_text(encoding="utf-8"))
+        self.assertIn('base: "/api/v1"', (ROOT / "ui/app.js").read_text(encoding="utf-8"))
+        self.assertIn('base: "/api/v1"', (ROOT / "ui/user/app.js").read_text(encoding="utf-8"))
+
+    def test_user_ui_authenticates_read_requests(self):
+        js = (ROOT / "ui/user/app.js").read_text(encoding="utf-8")
+        self.assertIn("headers: { ...headers(false), ...(options.headers || {}) }", js)
+        self.assertIn("Authorization: `Bearer ${state.token}`", js)
+
     def test_nginx_revalidates_html_and_immutably_caches_versioned_assets(self):
         config = (ROOT / "deploy/nginx.conf").read_text(encoding="utf-8")
         self.assertIn("map $host $ui_root", config)
