@@ -36,6 +36,10 @@ services:
       dockerfile: deploy/web.Dockerfile
     depends_on: [api]
     ports: ["8080:8080"]
+    networks:
+      default: {}
+      paperclip:
+        aliases: [agdatovka-web]
   db:
     image: postgres:16-alpine
     environment:
@@ -58,3 +62,8 @@ volumes:
   db-data:
   queue-data:
   object-data:
+
+networks:
+  paperclip:
+    external: true
+    name: paperclip_paperclip
