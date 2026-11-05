@@ -21,7 +21,7 @@ From the repository root:
 ```sh
 python3 -m unittest tests.test_agda62_conformance -v
 python3 -m unittest tests.test_soap_gateway tests.test_isds_adapter tests.test_security_boundary tests.test_pipeline -v
-python3 -m unittest discover -s tests -t . -q
+python3 -m unittest discover -s tests -q
 ```
 
 Observed on 2026-11-05: the full repository suite ran 95 tests and passed.
