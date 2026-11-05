@@ -21,12 +21,15 @@ From the repository root:
 ```sh
 python3 -m unittest tests.test_agda62_conformance -v
 python3 -m unittest tests.test_soap_gateway tests.test_isds_adapter tests.test_security_boundary tests.test_pipeline -v
-python3 -m unittest discover -s tests -q
+python3 -m unittest discover -s tests -t . -q
 ```
 
-Observed on 2026-11-04: focused AGDA-62 suite 7 tests passed; adjacent
-SOAP/adapter/security/pipeline suites 23 tests passed; full repository suite
-91 tests passed.
+Observed on 2026-11-05: the full repository suite ran 95 tests and passed.
+The synthetic certificate and application-auth fixtures now derive their
+validity windows from an explicit test clock; the fork workflow shares one
+run clock between fixture creation and validation. Production validators still
+use wall-clock time, and expiry/replay remains covered by a prior-day negative
+fixture.
 
 ## Traceability and observed results
 
