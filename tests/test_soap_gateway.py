@@ -1,31 +1,19 @@
 import json
 import unittest
-from datetime import datetime, timezone
+from datetime import timedelta
 from pathlib import Path
 
 from ag_datovka.app import create_app
 from ag_datovka.isds_adapter import IsdsCompatibilityAdapter
+from ag_datovka.security import SYNTHETIC_REFERENCE_NOW, synthetic_application_auth, synthetic_client_certificate
 from ag_datovka.soap_gateway import ISDS_NS, SOAP_ACTIONS, SOAP_ENV, SyntheticSoapGateway
 
 FIXTURES = Path(__file__).parents[1] / "fixtures" / "isds"
 
 
 def synthetic_auth(nonce="synthetic_nonce_soap_001"):
-    certificate = {
-        "fingerprint": "sha256:" + "b" * 64,
-        "anchorFingerprint": "sha256:" + "a" * 64,
-        "issuer": "Synthetic Test CA",
-        "notBefore": "2026-01-01T00:00:00Z",
-        "notAfter": "2027-01-01T00:00:00Z",
-        "san": ["isds.synthetic.test"],
-        "keyUsage": ["digitalSignature", "keyEncipherment"],
-        "chainValid": True,
-        "revocation": "good",
-    }
-    application_auth = {
-        "boxId": "synthetic-box-002", "application": "isds-soap", "nonce": nonce,
-        "issuedAt": "2026-11-04T00:00:00Z", "expiresAt": "2026-11-04T23:59:00Z",
-    }
+    certificate = synthetic_client_certificate(SYNTHETIC_REFERENCE_NOW)
+    application_auth = synthetic_application_auth(box_id="synthetic-box-002", nonce=nonce, now=SYNTHETIC_REFERENCE_NOW)
     return {
         "x-isds-client-certificate": json.dumps(certificate),
         "x-isds-application-auth": json.dumps(application_auth),
@@ -34,7 +22,7 @@ def synthetic_auth(nonce="synthetic_nonce_soap_001"):
 
 class SoapGatewayTest(unittest.TestCase):
     def setUp(self):
-        self.gateway = SyntheticSoapGateway()
+        self.gateway = SyntheticSoapGateway(now=SYNTHETIC_REFERENCE_NOW)
         self.raw = (FIXTURES / "soap-create-message.xml").read_bytes()
         self.headers = {"content-type": "text/xml; charset=utf-8", "soapaction": SOAP_ACTIONS["CreateMessage"], "x-request-id": "req_synthetic_001", "correlation-id": "corr_synthetic_001", **synthetic_auth()}
 
@@ -48,7 +36,7 @@ class SoapGatewayTest(unittest.TestCase):
         self.assertIn(b"corr_synthetic_001", response)
 
     def test_wsgi_integration_isolated_from_management_auth(self):
-        app = create_app()
+        app = create_app(soap_now=SYNTHETIC_REFERENCE_NOW)
         status, headers, response = app.handle_request("POST", "/isds/ws", self.headers, self.raw)
         self.assertEqual(status, 200)
         self.assertEqual(headers["content-type"], "text/xml; charset=utf-8")
@@ -64,7 +52,7 @@ class SoapGatewayTest(unittest.TestCase):
                 raise AssertionError("adapter must not run before SOAP authentication")
 
         adapter = SideEffectAdapter()
-        gateway = SyntheticSoapGateway(adapter, now=datetime(2026, 11, 4, tzinfo=timezone.utc))
+        gateway = SyntheticSoapGateway(adapter, now=SYNTHETIC_REFERENCE_NOW)
         for label, headers in (
             ("missing", {key: value for key, value in self.headers.items() if not key.startswith("x-isds-")}),
             ("wrong certificate", {**self.headers, "x-isds-client-certificate": self.headers["x-isds-client-certificate"].replace("b" * 64, "c" * 64)}),
@@ -79,8 +67,17 @@ class SoapGatewayTest(unittest.TestCase):
                 self.assertFalse(adapter.called)
 
     def test_expired_and_replayed_nonce_fail_before_adapter_side_effect(self):
-        gateway = SyntheticSoapGateway(now=datetime(2026, 11, 4, tzinfo=timezone.utc))
-        expired = {**self.headers, "x-isds-application-auth": self.headers["x-isds-application-auth"].replace("2026-11-04T00:00:00Z", "2026-11-03T00:00:00Z").replace("2026-11-04T23:59:00Z", "2026-11-03T23:59:00Z")}
+        gateway = SyntheticSoapGateway(now=SYNTHETIC_REFERENCE_NOW)
+        expired = {
+            **self.headers,
+            "x-isds-application-auth": json.dumps(
+                synthetic_application_auth(
+                    box_id="synthetic-box-002",
+                    nonce="synthetic_nonce_expired",
+                    now=SYNTHETIC_REFERENCE_NOW - timedelta(days=1),
+                )
+            ),
+        }
         status, _, response, _ = gateway.handle("POST", "/isds/ws", expired, self.raw)
         self.assertEqual(status, 401)
         self.assertIn(b"Client.Authentication", response)
@@ -141,7 +138,7 @@ class SoapGatewayTest(unittest.TestCase):
                 return super().parse_envelope(payload)
 
         adapter = CountingAdapter()
-        gateway = SyntheticSoapGateway(adapter)
+        gateway = SyntheticSoapGateway(adapter, now=SYNTHETIC_REFERENCE_NOW)
         pass_payload = opening + item * 50 + closing
         status, _, _, exchange = gateway.handle("POST", "/isds/ws", self.headers, pass_payload)
         self.assertEqual(status, 200)

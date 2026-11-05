@@ -18,6 +18,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from ag_datovka.app import create_app  # noqa: E402
+from ag_datovka.security import synthetic_application_auth, synthetic_client_certificate  # noqa: E402
 from ag_datovka.soap_gateway import ISDS_NS, SOAP_ACTIONS, SOAP_ENV, SyntheticSoapGateway  # noqa: E402
 
 
@@ -66,7 +67,8 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="ag-synthetic-") as temp:
         app = create_app(str(Path(temp) / "synthetic.sqlite3"))
         try:
-            soap = SyntheticSoapGateway()
+            workflow_now = datetime.now(timezone.utc)
+            soap = SyntheticSoapGateway(now=workflow_now)
 
             def request(method: str, path: str, body=None, *, token="dev:platform", key=None, headers=None):
                 request_headers = {"Authorization": f"Bearer {token}"}
@@ -81,25 +83,9 @@ def main() -> int:
                 return value
 
             def soap_request(operation: str, values: dict[str, str], *, request_id: str, attachments=None):
-                certificate = {
-                    "fingerprint": "sha256:" + "b" * 64,
-                    "anchorFingerprint": "sha256:" + "a" * 64,
-                    "issuer": "Synthetic Test CA",
-                    "notBefore": "2026-01-01T00:00:00Z",
-                    "notAfter": "2027-01-01T00:00:00Z",
-                    "san": ["isds.synthetic.test"],
-                    "keyUsage": ["digitalSignature", "keyEncipherment"],
-                    "chainValid": True,
-                    "revocation": "good",
-                }
                 box_id = values.get("recipientBoxId") or values.get("boxId") or "synthetic-box-002"
-                application_auth = {
-                    "boxId": box_id,
-                    "application": "isds-soap",
-                    "nonce": "synthetic_nonce_" + request_id,
-                    "issuedAt": "2026-11-04T00:00:00Z",
-                    "expiresAt": "2026-11-04T23:59:00Z",
-                }
+                certificate = synthetic_client_certificate(workflow_now)
+                application_auth = synthetic_application_auth(box_id=box_id, nonce="synthetic_nonce_" + request_id, now=workflow_now)
                 status, _, response, exchange = soap.handle(
                     "POST", "/isds/ws", {
                         "content-type": "text/xml; charset=utf-8",

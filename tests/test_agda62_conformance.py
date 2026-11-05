@@ -9,7 +9,14 @@ from pathlib import Path
 
 from ag_datovka.isds_adapter import MAX_DECODED_ATTACHMENT_BYTES, AdapterError, IsdsCompatibilityAdapter
 from ag_datovka.pipeline import DurablePipeline
-from ag_datovka.security import TrustError, TrustProfile, validate_certificate
+from ag_datovka.security import (
+    SYNTHETIC_REFERENCE_NOW,
+    TrustError,
+    TrustProfile,
+    synthetic_application_auth,
+    synthetic_client_certificate,
+    validate_certificate,
+)
 from ag_datovka.soap_gateway import ISDS_NS, SOAP_ACTIONS, SOAP_ENV, SyntheticSoapGateway
 
 
@@ -90,11 +97,17 @@ class LifecycleAndVoDZConformanceTest(unittest.TestCase):
 
 class SoapFaultAndTrustConformanceTest(unittest.TestCase):
     def setUp(self):
-        self.gateway = SyntheticSoapGateway()
+        self.gateway = SyntheticSoapGateway(now=SYNTHETIC_REFERENCE_NOW)
         self.raw = (FIXTURES / "soap-create-message.xml").read_bytes()
-        self.headers = {"soapaction": SOAP_ACTIONS["CreateMessage"], "x-request-id": "req_agda62", "correlation-id": "corr_agda62",
-                        "x-isds-client-certificate": json.dumps({"fingerprint": "sha256:" + "b" * 64, "anchorFingerprint": "sha256:" + "a" * 64, "issuer": "Synthetic Test CA", "notBefore": "2026-01-01T00:00:00Z", "notAfter": "2027-01-01T00:00:00Z", "san": ["isds.synthetic.test"], "keyUsage": ["digitalSignature", "keyEncipherment"], "chainValid": True, "revocation": "good"}),
-                        "x-isds-application-auth": json.dumps({"boxId": "synthetic-box-002", "application": "isds-soap", "nonce": "synthetic_nonce_agda62", "issuedAt": "2026-11-04T00:00:00Z", "expiresAt": "2026-11-04T23:59:00Z"})}
+        self.headers = {
+            "soapaction": SOAP_ACTIONS["CreateMessage"],
+            "x-request-id": "req_agda62",
+            "correlation-id": "corr_agda62",
+            "x-isds-client-certificate": json.dumps(synthetic_client_certificate(SYNTHETIC_REFERENCE_NOW)),
+            "x-isds-application-auth": json.dumps(
+                synthetic_application_auth(box_id="synthetic-box-002", nonce="synthetic_nonce_agda62", now=SYNTHETIC_REFERENCE_NOW)
+            ),
+        }
 
     def test_fault_matrix_preserves_safe_correlation_and_raw_provenance(self):
         cases = [

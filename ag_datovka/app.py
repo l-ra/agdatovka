@@ -350,7 +350,8 @@ class ManagementApp:
 
     def __init__(self, db_path: str = ":memory:", *, oidc_issuer: str | None = None,
                  oidc_audience: str | None = None, oidc_signing_keys: Mapping[str, bytes] | None = None,
-                 revoked_token_ids: frozenset[str] = frozenset(), auth_profile: str = "test") -> None:
+                 revoked_token_ids: frozenset[str] = frozenset(), auth_profile: str = "test",
+                 soap_now: datetime | None = None) -> None:
         self.db = Database(db_path)
         self.pipeline = DurablePipeline(self.db.connection, max_in_flight=1000, max_attempts=5)
         self.oidc_issuer = oidc_issuer
@@ -358,7 +359,7 @@ class ManagementApp:
         self.oidc_signing_keys = dict(oidc_signing_keys or {})
         self.revoked_token_ids = frozenset(revoked_token_ids)
         self.auth_profile = auth_profile
-        self.soap_gateway = SyntheticSoapGateway()
+        self.soap_gateway = SyntheticSoapGateway(now=soap_now)
         # The SQLite fixture is intentionally single-process.  Serializing the
         # request critical section makes the idempotency claim atomic for the
         # supported local deployment and gives deterministic concurrency tests.

@@ -8,13 +8,46 @@ import re
 import secrets
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Mapping
 from urllib.parse import urlsplit
 
 class TrustError(ValueError):
     def __init__(self, code: str, detail: str):
         super().__init__(detail); self.code, self.detail = code, detail
+
+
+SYNTHETIC_REFERENCE_NOW = datetime(2026, 11, 4, tzinfo=timezone.utc)
+
+
+def _isoformat(value: datetime) -> str:
+    return value.astimezone(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def synthetic_client_certificate(now: datetime) -> dict[str, Any]:
+    """Build a CI-only client certificate fixture around an explicit clock."""
+    return {
+        "fingerprint": "sha256:" + "b" * 64,
+        "anchorFingerprint": "sha256:" + "a" * 64,
+        "issuer": "Synthetic Test CA",
+        "notBefore": _isoformat(now - timedelta(days=1)),
+        "notAfter": _isoformat(now + timedelta(days=365)),
+        "san": ["isds.synthetic.test"],
+        "keyUsage": ["digitalSignature", "keyEncipherment"],
+        "chainValid": True,
+        "revocation": "good",
+    }
+
+
+def synthetic_application_auth(*, box_id: str, nonce: str, now: datetime) -> dict[str, str]:
+    """Build CI-only application authentication valid for the supplied clock."""
+    return {
+        "boxId": box_id,
+        "application": "isds-soap",
+        "nonce": nonce,
+        "issuedAt": _isoformat(now - timedelta(minutes=1)),
+        "expiresAt": _isoformat(now + timedelta(minutes=59)),
+    }
 
 def _time(value: str) -> datetime:
     try: return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(timezone.utc)
